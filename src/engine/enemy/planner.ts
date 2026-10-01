@@ -192,6 +192,10 @@ function scoreMove(h: EncounterState, slot: SlotData, m: Move, pc: PlanContext):
   s += w.goal * goalScore(slot, m, mover, pc, attacksGoal);
   s += w.protect * protectScore(slot, m, mover, kingAfter);
 
+  // Boss terrain: enemy Sanctuaries are worth standing on (especially for the King).
+  if (slot.ctx.marksAt[m.to]?.some((mk) => mk.type === 'ENEMY_SANCTUARY')) s += mover.type === 'king' ? 30 : 6;
+  if (mover.type === 'king' && slot.ctx.marksAt[m.from]?.some((mk) => mk.type === 'ENEMY_SANCTUARY')) s -= 20;
+
   // Mild centralization so quiet positions still produce purposeful moves.
   if (mover.type !== 'king') {
     const centre = (sq: Sq) => 3.5 - Math.max(Math.abs(fileOf(sq) - 3.5), Math.abs(rankOf(sq) - 3.5));

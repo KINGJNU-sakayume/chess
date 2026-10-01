@@ -137,7 +137,7 @@ export function attemptCapture(r: Resolver, targetId: string, byId: string | nul
   if (!target) return false;
   const attacker = byId ? d.pieces[byId] : undefined;
   if (totalWards(target) > 0) {
-    consumeWard(d, targetId);
+    const wardSource = consumeWard(d, targetId);
     d.stats.wardsBlocked += 1;
     r.log('blocked', `Ward blocks the capture of ${pieceLabel(target)} (${totalWards(d.pieces[targetId])} left)`, 1, [target.sq]);
     r.emit({
@@ -149,7 +149,7 @@ export function attemptCapture(r: Resolver, targetId: string, byId: string | nul
       targetType: target.type,
       targetSide: target.side,
       sq: target.sq,
-      meta: { source },
+      meta: { source, wardSource },
     });
     return false;
   }

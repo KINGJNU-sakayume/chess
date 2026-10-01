@@ -78,10 +78,26 @@ export const BUILTIN_SUBSCRIBERS: BuiltinSubscriber[] = [
     run(r) {
       for (const id of Object.keys(r.d.pieces)) {
         const p = r.d.pieces[id];
-        if (p.side !== 'enemy' || !activeMark(r, p.sq, 'ENEMY_SANCTUARY', 'enemy')) continue;
-        addWard(r, id, 1, 'square:ENEMY_SANCTUARY', { at: 'turnEnd', turn: r.d.turn });
+        const mark = p.side === 'enemy' ? activeMark(r, p.sq, 'ENEMY_SANCTUARY', 'enemy') : undefined;
+        if (!mark) continue;
+        addWard(r, id, 1, `sanctuary:${mark.id}`, { at: 'turnEnd', turn: r.d.turn });
         r.log('trigger', `Enemy Sanctuary ${sqName(p.sq)}: ${pieceLabel(p)} gains a Ward this turn`, 1, [p.sq]);
       }
+    },
+  },
+  {
+    // Boss Sanctuaries crumble once their Ward has absorbed a capture (see DESIGN_DECISIONS).
+    id: 'square:ENEMY_SANCTUARY:crumble',
+    event: 'onCaptureBlocked',
+    priority: 0,
+    run(r, e) {
+      const source = e.meta?.wardSource;
+      if (typeof source !== 'string' || !source.startsWith('sanctuary:')) return;
+      const markId = source.slice('sanctuary:'.length);
+      const mark = r.d.marks.find((m) => m.id === markId);
+      if (!mark) return;
+      r.d.marks = r.d.marks.filter((m) => m.id !== markId);
+      r.log('trigger', `The Sanctuary on ${sqName(mark.sq)} crumbles`, 1, [mark.sq]);
     },
   },
   {

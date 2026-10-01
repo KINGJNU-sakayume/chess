@@ -20,7 +20,7 @@ export interface BoardPieceView {
   className?: string;
 }
 
-export type MoveDot = 'move' | 'capture' | 'pierce' | 'extra' | 'special' | 'deploy';
+export type MoveDot = 'move' | 'capture' | 'pierce' | 'extra' | 'special' | 'deploy' | 'place';
 
 export interface BoardSquareView {
   tone?: 'selected' | 'last' | 'check' | 'hover' | 'target';
@@ -72,6 +72,8 @@ function dotNode(dot: MoveDot) {
       return <div className="absolute inset-[30%] rotate-45 bg-gold-400/85 shadow-[0_0_10px_rgba(232,196,106,0.9)]" />;
     case 'deploy':
       return <div className="absolute inset-[30%] rounded-md border-[3px] border-dashed border-arcane-300/90" />;
+    case 'place':
+      return <div className="absolute inset-[7%] rounded-md border-2 border-gold-300/70 bg-gold-300/10" />;
     default:
       return <div className="absolute inset-[35%] rounded-full bg-ink-900/40" />;
   }

@@ -101,3 +101,44 @@ Development Rule ("does this increase the player's ability to create their own b
   Multiple rails on the same line stack.
 - **New roster pieces** take a free formation square in the deployment zone (Pawns prefer the front, pieces the
   back rank), otherwise they wait in Reserve.
+
+## Run structure (M4)
+
+- **Rows per act.** "~7 rows" conflicts with "5–6 combats, 1–2 elites and 2–3 non-combat nodes on every path"
+  (at least 8 nodes). Maps use 9 rows plus the boss row (data: `ACTS[].rows`), which allows every legal
+  composition (5/1/3, 5/2/2, 6/1/2). Generation picks a valid per-row pattern, then varies individual nodes only
+  when every path through them stays valid. Rows 1–2 are combats; elites never appear before row 4; each act has
+  at least one Shop.
+- **Seeds.** Each map node carries a stable seed (`runSeed|nodeId`); encounters, boss retries ("same seed
+  variant") and node content derive from it. Offers use the `offers` stream, events the `events` stream, maps the
+  `map` stream.
+- **Offers.** Offer weight = rarity weight × (1 + 0.5 × stacks of owned upgrades sharing an archetype tag). Generic
+  mechanical tags (`capture`, `movement`, `extra_action`, `defense`, `roster`) do not drive weighting. The most-owned
+  tag is computed over archetype tags; ties resolve in a fixed tag order. Elites force one Rare+ offer; bosses offer
+  Rare/Legendary only. Upgrades whose acquisition is impossible (e.g. Advanced Bishop without a Bishop) are skipped.
+- **Rewards can be skipped.** Taking nothing is always allowed.
+- **Gold.** Base (10/15/20) + 2 × unused turns, where unused = T − the turn the objective completed. Survival and
+  Defense (which cannot finish early) give +5 flat. Elites ×1.5, bosses ×2, rounded.
+- **Shop prices.** Upgrades 30/45/65/95 by rarity (+10% per act after the first), Pawn 12, Knight/Bishop 35,
+  Rook 50, Crown 55, lift a curse 60, reroll 15 after the free one.
+- **Starting-position upgrades.** Advanced Bishop moves a Bishop to rank 3 on its file (nearest free rank-3 square
+  if needed). Forward Knight takes any empty rank-3/4 square. Castled Start chooses kingside (K g1, R f1) or
+  queenside (K c1, R d1). Forward Deployment adds rank 3; each stack from the second adds 2 chosen rank-4 squares.
+  Open Center removes the Pawns standing on the d- and e-files of the formation. Pieces moved by these upgrades
+  are locked; displaced pieces swap into the vacated square.
+- **Formation editor.** Any unlocked piece may move inside the deployment zone or to Reserve; the King must stay on
+  the board.
+- **Board mutations** are placed on ranks 1–6; different square types may share a square, the same type may not.
+  Knight Gates link the two chosen squares; Rook Rails choose a rank (1–6) or a file.
+- **Saves.** Versioned JSON (`schema`) with a migration chain; the per-turn undo stack is never saved. Autosave after
+  every run action except mid-turn encounter actions, i.e. after every node and every End Turn.
+- **Replays.** `RunState.actions` records every run action; replaying them from the seed reproduces the identical
+  state hash (tested).
+- **The Fortress King.** Act I boss: King in a corner with a two-pawn shield, Rook, Knight, Bishop and a broken
+  rampart; T = 11. Its Sanctuaries (2 every 3 turns, telegraphed a turn ahead) grant a Ward to an enemy piece
+  standing on them at the start of your turn, and **crumble once that Ward blocks a capture**. Without the crumble,
+  a King on a Sanctuary is uncapturable with one action per turn — a boss that disables builds instead of pressuring
+  them.
+- **Headless simulation.** `simulateRun` plays whole runs through the same reducer with a bot that reads intents
+  (it targets where the enemy King is *going*), values the extra actions/Wards its build generates, and leans on the
+  pieces its upgrades improve. It is the balance instrument for M4/M6 acceptance tests.

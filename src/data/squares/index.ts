@@ -28,7 +28,7 @@ export const SQUARE_INFO: Record<SquareType, { name: string; text: string }> = {
   CONSECRATED: { name: 'Consecrated', text: 'Enemy intents whose destination is Consecrated fizzle.' },
   ENEMY_SANCTUARY: {
     name: 'Enemy Sanctuary',
-    text: 'An enemy piece standing here at the start of your turn gains 1 Ward until your turn ends.',
+    text: 'An enemy piece standing here at the start of your turn gains 1 Ward until your turn ends. The square crumbles once that Ward blocks a capture.',
   },
   PROFANE: { name: 'Profane Diagonal', text: 'Your pieces ending a move here lose all Wards.' },
 };

@@ -2,6 +2,7 @@ import { between, chebyshev, rankOf, type Sq } from '../core/coords';
 import { PIECE_VALUE, type PieceType } from '../core/pieces';
 import type { EncounterState, Intent, Piece } from '../core/state';
 import { makeHypo, mutableCopy, retarget, unmakeHypo } from '../moves/hypo';
+import { compileRules } from '../rules/compile';
 import { affordableMoves, createGenContext, pieceAttacks, pieceMoves, type GenContext, type Move } from '../moves/generate';
 import type { Rng } from '../rng/rng';
 import { applyGeneratedMove, applyPlayerAction, deploySquares, endTurn, type PlayerActionInput } from './flow';
@@ -107,7 +108,7 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
   const hctx = retarget(ctx, h);
 
   // Committed intents: dodge, block, bait, capture the intending piece.
-  inf.intents.forEach((intent, i) => {
+  const landsAfter = inf.intents.map((intent, i) => {
     const victim = inf.victims[i];
     const victimValue = victim ? (victim.type === 'king' ? 400 : V(victim.type) * 9) : 0;
     const touches = inf.intentSquares[i].has(m.from) || inf.intentSquares[i].has(m.to) || m.captureId === intent.pieceId;
@@ -117,7 +118,13 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
     if (victim && !lands) s += victimValue;
     if (victim && lands && victim.id === m.pieceId) s += victimValue; // moved away; landing on empty square
     if (lands && m.to === intent.to) s -= mover.type === 'king' ? 5000 : V(mover.type) * 9;
+    return lands;
   });
+  // Where will the objective pieces stand after the enemy phase? (Read their intents.)
+  const predicted = (p: Piece): Sq => {
+    const i = inf.intents.findIndex((x) => x.pieceId === p.id);
+    return i >= 0 && landsAfter[i] ? inf.intents[i].to : p.sq;
+  };
 
   // General safety: avoid squares the enemy already attacks.
   if (inf.enemyAttacks[m.to] && mover.type !== 'king') s -= V(mover.type) * (opts.careful ? 3 : 2);
@@ -129,18 +136,19 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
     case 'RESCUE': {
       const k = inf.enemyKing;
       if (k) {
+        const goal = predicted(k);
         if (mover.type !== 'king') {
-          if (attacksSquare(hctx, m.pieceId, k.sq)) s += inf.enemyAttacks[m.to] ? 60 : 140;
-          s += (chebyshev(m.from, k.sq) - chebyshev(m.to, k.sq)) * (mover.type === 'pawn' ? 1 : 3);
+          if (attacksSquare(hctx, m.pieceId, goal)) s += inf.enemyAttacks[m.to] ? 60 : 140;
+          s += (chebyshev(m.from, goal) - chebyshev(m.to, goal)) * (mover.type === 'pawn' ? 1 : 3);
         }
       }
       break;
     }
     case 'ELIMINATION': {
       if (inf.targets.length && mover.type !== 'king') {
-        const near = (sq: Sq) => Math.min(...inf.targets.filter((t) => t.id !== m.captureId).map((t) => chebyshev(sq, t.sq)), 9);
+        const near = (sq: Sq) => Math.min(...inf.targets.filter((t) => t.id !== m.captureId).map((t) => chebyshev(sq, predicted(t))), 9);
         s += (near(m.from) - near(m.to)) * 3;
-        for (const t of inf.targets) if (t.id !== m.captureId && attacksSquare(hctx, m.pieceId, t.sq)) s += 35;
+        for (const t of inf.targets) if (t.id !== m.captureId && attacksSquare(hctx, m.pieceId, predicted(t))) s += 35;
       }
       break;
     }
@@ -170,6 +178,88 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
   return s;
 }
 
+/** Base-pattern attack test (ignores upgrades): would a `type` on `from` attack `to` on this board? */
+function attacksGeom(state: EncounterState, type: PieceType, from: Sq, to: Sq, vacated: Sq): boolean {
+  const df = (to & 7) - (from & 7);
+  const dr = (to >> 3) - (from >> 3);
+  const adf = Math.abs(df);
+  const adr = Math.abs(dr);
+  if (adf === 0 && adr === 0) return false;
+  switch (type) {
+    case 'knight':
+      return (adf === 1 && adr === 2) || (adf === 2 && adr === 1);
+    case 'king':
+      return adf <= 1 && adr <= 1;
+    case 'pawn':
+      return adf === 1 && dr === 1;
+    default: {
+      const diagonal = adf === adr;
+      const straight = adf === 0 || adr === 0;
+      if (type === 'bishop' && !diagonal) return false;
+      if (type === 'rook' && !straight) return false;
+      if (type === 'queen' && !diagonal && !straight) return false;
+      const path = between(from, to);
+      if (!path) return false;
+      return path.every((sq) => (sq === vacated || !state.board[sq]) && state.terrain[sq] !== 'WALL');
+    }
+  }
+}
+
+/**
+ * Two-move threat potential toward the objective squares: how many ways the
+ * player could attack them next turn (careful bots only).
+ */
+function threatPotential(h: EncounterState, ctx: GenContext, goals: Sq[]): number {
+  let pot = 0;
+  for (const id in h.pieces) {
+    const p = h.pieces[id];
+    if (p.side !== 'player' || p.type === 'king') continue;
+    let perPiece = 0;
+    for (const g of goals) {
+      if (attacksGeom(h, p.type, p.sq, g, -1)) perPiece += 4;
+    }
+    for (const m of pieceMoves(ctx, id)) {
+      for (const g of goals) {
+        if (m.to !== g && attacksGeom(h, m.promotion ?? p.type, m.to, g, p.sq)) perPiece += 1;
+      }
+      if (perPiece >= 6) break;
+    }
+    pot += Math.min(6, perPiece);
+  }
+  return Math.min(pot, 18);
+}
+
+function goalSquares(state: EncounterState, inf: DecisionInfo): Sq[] {
+  const predicted = (p: Piece): Sq => {
+    const i = inf.intents.findIndex((x) => x.pieceId === p.id);
+    return i >= 0 && inf.intentLands[i] ? inf.intents[i].to : p.sq;
+  };
+  switch (state.config.objective.type) {
+    case 'ASSASSINATION':
+    case 'RESCUE':
+      return inf.enemyKing ? [predicted(inf.enemyKing)] : [];
+    case 'ELIMINATION':
+      return inf.targets.map(predicted);
+    default:
+      return [];
+  }
+}
+
+const affinityCache = new WeakMap<object, Partial<Record<PieceType, number>>>();
+
+/** Stacks of owned upgrades affecting each piece type. */
+function buildAffinity(state: EncounterState): Partial<Record<PieceType, number>> {
+  const cached = affinityCache.get(state.rules);
+  if (cached) return cached;
+  const rules = compileRules(state.rules);
+  const out: Partial<Record<PieceType, number>> = {};
+  for (const [id, owned] of rules.owned) {
+    for (const t of rules.defs.get(id)!.affects) out[t] = (out[t] ?? 0) + owned.stacks;
+  }
+  affinityCache.set(state.rules, out);
+  return out;
+}
+
 /** Pick the next action for the player, or null to end the turn. */
 export function chooseAction(state: EncounterState, opts: PolicyOptions): { action: PlayerActionInput; move?: Move } | null {
   if (state.phase !== 'player' || state.outcome) return null;
@@ -185,15 +275,60 @@ export function chooseAction(state: EncounterState, opts: PolicyOptions): { acti
   const inf = info(state, ctx);
   const h = mutableCopy(state);
   const hctx = retarget(ctx, h);
+  const scored: { move: Move; score: number }[] = [];
+  for (const m of moves) {
+    // Bots always queen.
+    if (m.promotion && m.promotion !== 'queen') continue;
+    scored.push({ move: m, score: scoreMove(h, hctx, m, inf, opts) });
+  }
+  if (opts.careful) {
+    const goals = goalSquares(state, inf);
+    // Build affinity: a player leans on the pieces their upgrades improve.
+    const affinity = buildAffinity(state);
+    const favoured = (Object.keys(affinity) as PieceType[]).filter((t) => affinity[t]! >= 2);
+    const mobility = (st: EncounterState, c: GenContext) => {
+      let n = 0;
+      for (const id in st.pieces) {
+        const p = st.pieces[id];
+        if (p.side === 'player' && favoured.includes(p.type)) n += pieceMoves(c, id).length;
+      }
+      return n;
+    };
+    const mobilityBefore = favoured.length ? mobility(state, ctx) : 0;
+    for (const c of scored) c.score += Math.min(6, affinity[c.move.pieceType] ?? 0) * 1.6;
+    scored.sort((a, b) => b.score - a.score);
+    for (const c of scored.slice(0, 8)) {
+      if (favoured.length) {
+        const u = makeHypo(h, c.move);
+        c.score += 0.8 * (mobility(h, retarget(ctx, h)) - mobilityBefore);
+        unmakeHypo(h, u);
+      }
+      if (c.score >= 1e5) continue;
+      if (goals.length) {
+        const u = makeHypo(h, c.move);
+        c.score += 3 * threatPotential(h, retarget(ctx, h), goals);
+        unmakeHypo(h, u);
+      }
+      // Resolve the move for real (silently) to value what the build's triggers give back.
+      const after = applyGeneratedMove(state, c.move, { silent: true }).state;
+      if (after.outcome?.result === 'won') c.score += 1e5;
+      const spent = c.move.free ? 0 : 1;
+      const gained = after.actions.length - (state.actions.length - spent);
+      c.score += 14 * Math.max(0, gained);
+      const wardsBefore = Object.values(state.pieces).reduce((n, p) => n + (p.side === 'player' ? p.wards : 0), 0);
+      const wardsAfter = Object.values(after.pieces).reduce((n, p) => n + (p.side === 'player' ? p.wards : 0), 0);
+      c.score += 4 * Math.max(0, wardsAfter - wardsBefore);
+      const immobilized = Object.values(after.pieces).filter((p) => p.side === 'enemy' && p.statuses.length > 0).length;
+      const immobilizedBefore = Object.values(state.pieces).filter((p) => p.side === 'enemy' && p.statuses.length > 0).length;
+      c.score += 5 * Math.max(0, immobilized - immobilizedBefore);
+    }
+  }
   let best: Move | null = null;
   let bestScore = -Infinity;
-  for (const m of moves) {
-    // Bots always queen and take free gate/recall variants only when they matter little.
-    if (m.promotion && m.promotion !== 'queen') continue;
-    const sc = scoreMove(h, hctx, m, inf, opts);
-    if (sc > bestScore) {
-      bestScore = sc;
-      best = m;
+  for (const c of scored) {
+    if (c.score > bestScore) {
+      bestScore = c.score;
+      best = c.move;
     }
   }
   if (!best || bestScore < -50) return null;

@@ -67,18 +67,26 @@ export const totalWards = (p: Piece): number => p.wards + p.tempWards.reduce((n,
 
 export const isImmobilized = (p: Piece): boolean => p.statuses.some((s) => s.type === 'IMMOBILIZED');
 
-/** Consume one Ward, preferring temporary Wards (they would expire anyway). */
-export function consumeWard(d: Draft, id: string): void {
+/**
+ * Consume one Ward, preferring temporary Wards (they would expire anyway).
+ * Returns the consumed Ward's source ('permanent' for persistent Wards).
+ */
+export function consumeWard(d: Draft, id: string): string | null {
   const p = d.pieces[id];
   if (p.tempWards.length > 0) {
     const temp = p.tempWards.slice();
+    const source = temp[0].source;
     const first = { ...temp[0], count: temp[0].count - 1 };
     if (first.count <= 0) temp.shift();
     else temp[0] = first;
     patchPiece(d, id, { tempWards: temp });
-  } else if (p.wards > 0) {
-    patchPiece(d, id, { wards: p.wards - 1 });
+    return source;
   }
+  if (p.wards > 0) {
+    patchPiece(d, id, { wards: p.wards - 1 });
+    return 'permanent';
+  }
+  return null;
 }
 
 export interface LogSink {
