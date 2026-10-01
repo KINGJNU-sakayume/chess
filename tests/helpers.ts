@@ -79,3 +79,58 @@ export function at(s: EncounterState, square: string) {
   if (!id) throw new Error(`No piece on ${square}`);
   return s.pieces[id];
 }
+
+import { applyPlayerAction, endTurn as engineEndTurn } from '../src/engine/encounters/flow';
+import { affordableMoves, createGenContext } from '../src/engine/moves/generate';
+
+/** Make a player move by squares (throws if illegal). */
+export function play(s: EncounterState, from: string, to: string, extra: { promotion?: PieceType; gate?: boolean; recall?: boolean } = {}): EncounterState {
+  const id = s.board[parseSq(from)];
+  if (!id) throw new Error(`No piece on ${from}`);
+  return applyPlayerAction(s, { type: 'move', pieceId: id, to: parseSq(to), ...extra }).state;
+}
+
+export function endTurn(s: EncounterState): EncounterState {
+  return engineEndTurn(s).state;
+}
+
+/** Destination squares (names) the piece on `from` can move to right now. */
+export function targets(s: EncounterState, from: string): string[] {
+  const id = s.board[parseSq(from)]!;
+  const names = affordableMoves(createGenContext(s), id).map((m) => 'abcdefgh'[m.to & 7] + String((m.to >> 3) + 1));
+  return [...new Set(names)].sort();
+}
+
+export function logText(s: EncounterState): string[] {
+  return s.log.map((l) => l.text);
+}
+
+/** Replace a piece's fields directly (test setup only). */
+export function patch(s: EncounterState, square: string, fields: Partial<EncounterState['pieces'][string]>): EncounterState {
+  const id = s.board[parseSq(square)]!;
+  return { ...s, pieces: { ...s.pieces, [id]: { ...s.pieces[id], ...fields } } };
+}
+
+export function withIntents(s: EncounterState, list: [string, string][]): EncounterState {
+  return {
+    ...s,
+    intents: list.map(([from, to], i) => {
+      const id = s.board[parseSq(from)]!;
+      const victim = s.board[parseSq(to)];
+      return {
+        id: `t${i}`,
+        kind: 'move' as const,
+        pieceId: id,
+        pieceType: s.pieces[id].type,
+        from: parseSq(from),
+        to: parseSq(to),
+        expectedTargetId: victim ?? undefined,
+        expectedTargetType: victim ? s.pieces[victim].type : undefined,
+      };
+    }),
+  };
+}
+
+export function mutation(id: string, type: PlacedMutation['type'], square: string, extra: Partial<PlacedMutation> = {}): PlacedMutation {
+  return { id, upgradeId: `mut_${type.toLowerCase()}`, type, sq: parseSq(square), ...extra };
+}

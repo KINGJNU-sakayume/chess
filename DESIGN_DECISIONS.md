@@ -68,3 +68,36 @@ Development Rule ("does this increase the player's ability to create their own b
   intending piece) and pursues the objective. Playouts stop early once at least one success has been found after
   eight playouts; every executed playout is checked for a win within the first two turns. Up to 8 generation
   attempts are made before falling back to the template's safe variant (validated for every act in tests).
+
+## Rule engine and first builds (M3)
+
+- **Upgrade DSL.** Upgrades are `UpgradeDef` objects: hooks (event + condition + usage limit + effects), movement
+  modifiers (Layer B), promotion rules, roster effects and acquisition choices. Numbers that grow with stacks use
+  `NumExpr` (`base + perStack × stacks`, clamped). Every upgrade lists the primitives it uses.
+- **Custom effects** (D5 escape hatch, all tested): `chainPromotion`, `phalanxWards`, `swarmTide`, `twinBishops`,
+  `diagonalDominion`, and the predicate `targetAttackedByOtherBishop`. Implementations live in
+  `src/engine/effects/custom.ts` with a doc string each.
+- **Saturating upgrades** declare `maxUsefulStacks` (e.g. Early Promotion stops at rank 4, Veteran Pawn's threshold
+  stops at 1). Offers skip an upgrade only once further stacks would do nothing — this is not a cap on builds.
+- **Prerequisites** ("own 2+ Bishop upgrades") count stacks of upgrades carrying that tag.
+- **Long Cathedral** triggers *once per Bishop per turn*. As written, two Bishops on open diagonals could pass
+  extra actions back and forth forever; D4 requires loop-capable upgrades to carry their own "once per turn/piece"
+  wording. N Bishops still give up to N + 1 moves per turn, so the effect scales with the build.
+- **Long Cathedral, Consecrated Diagonal** only count real moves (not free REPOSITIONs such as Bishop Recall).
+- **Consecrated Diagonal** consecrates the squares *crossed* (strictly between origin and destination), never the
+  Bishop's own landing square. Duration: until the end of your next turn, +1 turn per extra stack.
+- **Bishop Battery** stack 1 grants a Bishop-only action (stack 2+ makes it unrestricted, per the brief). "Also
+  attacked" is evaluated on the board before the capturing move.
+- **Bishop Recall** and **Knight Gate** are player choices encoded as move variants: the UI asks when a
+  destination has more than one variant (like promotion).
+- **Chain Promotion** advances the most advanced other Pawns *that are able to advance*, and a Pawn promoted by the
+  chain becomes the same piece type as the triggering promotion (promote to Bishops, chain into Bishops).
+- **Phalanx** stack 2 adds "diagonal-behind" support: a Pawn with an allied Pawn diagonally behind it.
+- **Swarm Tide**: divisor = max(2, 5 − stacks), counted from Pawns on the board at turn start.
+- **Twin Bishops** checks Bishops on the board at encounter start (Bishops in Reserve neither count nor gain Wards).
+- **Diagonal Dominion**'s Crimson squares last until the start of your next turn, i.e. through the enemy phase.
+- **Open File** pierces only along the file the Rook stands on (vertical moves).
+- **Rook Rails** cover a whole rank or file; a Rook pierces 1 allied piece when moving along a rail it stands on.
+  Multiple rails on the same line stack.
+- **New roster pieces** take a free formation square in the deployment zone (Pawns prefer the front, pieces the
+  back rank), otherwise they wait in Reserve.

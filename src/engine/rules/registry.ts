@@ -26,3 +26,9 @@ export function affixDef(id: string): AffixDef {
 
 export const allUpgrades = (): readonly UpgradeDef[] => UPGRADES;
 export const allAffixes = (): readonly AffixDef[] => AFFIXES;
+
+/** Tests only: register an extra upgrade definition (e.g. trigger-ordering probes). */
+export function registerUpgradeForTests(def: UpgradeDef): void {
+  upgradeIndex ??= new Map(UPGRADES.map((u) => [u.id, u]));
+  upgradeIndex.set(def.id, def);
+}

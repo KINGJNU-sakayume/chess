@@ -4,6 +4,8 @@ import { generateEncounter } from '../engine/encounters/generator';
 import { createEncounter } from '../engine/encounters/setup';
 import { standardRoster } from '../engine/run/roster';
 import type { OwnedUpgrade } from '../engine/core/state';
+import type { PlacedMutation } from '../engine/encounters/setup';
+import { deploymentZone, rosterWithUpgrades } from '../engine/run/rosterOps';
 import { useAppStore } from '../state/appStore';
 import { useSession } from '../state/sessionStore';
 import { EncounterScreen } from './EncounterScreen';
@@ -21,10 +23,12 @@ export function SandboxScreen() {
   const [kind, setKind] = useState<'combat' | 'elite'>('combat');
   const [seed, setSeed] = useState(() => `sandbox-${Date.now() % 100000}`);
   const [upgrades, setUpgrades] = useState<OwnedUpgrade[]>([]);
+  const [mutations, setMutations] = useState<PlacedMutation[]>([]);
   const [status, setStatus] = useState<string>('');
 
-  const start = (ups = upgrades) => {
-    const roster = standardRoster().map((r) => ({ rosterId: r.id, type: r.type, sq: r.sq }));
+  const start = (ups = upgrades, muts = mutations) => {
+    const zone = deploymentZone(false);
+    const roster = rosterWithUpgrades(standardRoster(), ups, zone).map((r) => ({ rosterId: r.id, type: r.type, sq: r.sq }));
     const t0 = performance.now();
     const gen = generateEncounter({
       seed,
@@ -34,7 +38,7 @@ export function SandboxScreen() {
       difficulty: 0.5,
       rules: { upgrades: ups, affixes: [] },
       roster,
-      mutations: [],
+      mutations: muts,
       deploymentTop: 1,
     });
     const state = createEncounter(gen.setup);
@@ -75,9 +79,11 @@ export function SandboxScreen() {
         sidebarExtra={
           <DebugPanel
             upgrades={upgrades}
+            mutations={mutations}
             onChange={(next) => {
-              setUpgrades(next);
-              start(next);
+              setUpgrades(next.upgrades);
+              setMutations(next.mutations);
+              start(next.upgrades, next.mutations);
             }}
           />
         }
