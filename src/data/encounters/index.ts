@@ -1,0 +1,264 @@
+import { parseSq, sqOf } from '../../engine/core/coords';
+import type { PieceType } from '../../engine/core/pieces';
+import type { EncounterTemplate, TemplateContext, TemplateOutput } from '../../engine/encounters/templates';
+import { actTuning } from '../acts';
+import { clampFile, nearFiles, Placer, turnLimitFor } from './helpers';
+
+/**
+ * Encounter templates. Every template is an open tactical problem: several
+ * plausible approaches, never a single intended line (B5).
+ */
+
+const baseActions = (ctx: TemplateContext): number => {
+  const [lo, hi] = actTuning(ctx.act).enemyActions;
+  return lo === hi ? lo : ctx.difficulty > 0.5 ? hi : lo;
+};
+
+const pick = <T,>(ctx: TemplateContext, items: T[]): T => ctx.rng.pick(items);
+
+function minorPiece(ctx: TemplateContext): PieceType {
+  return ctx.rng.chance(0.5) ? 'knight' : 'bishop';
+}
+
+// ---------------------------------------------------------------------------
+// ASSASSINATION — Skirmish
+// ---------------------------------------------------------------------------
+
+const skirmish: EncounterTemplate = {
+  id: 'skirmish',
+  name: 'Skirmish',
+  objective: 'ASSASSINATION',
+  blurb: 'Capture the enemy King.',
+  acts: [1, 2, 3],
+  weight: 3,
+  generate(ctx) {
+    const P = new Placer(ctx);
+    const kingFile = ctx.rng.range(2, 5);
+    const kingRank = ctx.rng.chance(0.7) ? 7 : 6;
+    P.put('king', sqOf(kingFile, kingRank));
+    const pawnCount = [0, ctx.rng.range(2, 4), ctx.rng.range(3, 5), ctx.rng.range(4, 6)][ctx.act];
+    const pawnSquares = P.region(nearFiles(kingFile, 3), [kingRank - 2, kingRank - 1]);
+    for (let i = 0; i < pawnCount; i++) P.putIn('pawn', pawnSquares);
+    const minors = [0, ctx.rng.range(1, 2), 2, ctx.rng.range(2, 3)][ctx.act];
+    for (let i = 0; i < minors; i++) P.putIn(minorPiece(ctx), P.region([0, 7], [5, 7]));
+    if (ctx.act >= 2 || ctx.difficulty > 0.6) P.putIn('rook', P.region([0, 7], [6, 7]));
+    if (ctx.act >= 3 && ctx.rng.chance(0.6)) P.putIn('queen', P.region([0, 7], [6, 7]));
+    if (ctx.rng.chance(actTuning(ctx.act).terrainChance)) P.scatterRubble(ctx.rng.range(2, 3));
+    return {
+      name: 'Skirmish',
+      objective: { type: 'ASSASSINATION' },
+      turnLimit: turnLimitFor(ctx, actTuning(ctx.act).turnLimit),
+      enemyActions: baseActions(ctx),
+      profile: { kind: 'guard_king' },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [],
+    };
+  },
+  safe(ctx) {
+    const P = new Placer(ctx);
+    P.put('king', parseSq('e8'));
+    for (const s of ['d7', 'f7', 'g6']) P.put('pawn', parseSq(s));
+    P.put('knight', parseSq('c6'));
+    if (ctx.act >= 2) P.put('rook', parseSq('h8'));
+    if (ctx.act >= 3) P.put('bishop', parseSq('f8'));
+    return {
+      name: 'Skirmish',
+      objective: { type: 'ASSASSINATION' },
+      turnLimit: actTuning(ctx.act).turnLimit[1] + 1,
+      enemyActions: actTuning(ctx.act).enemyActions[0],
+      profile: { kind: 'guard_king' },
+      enemies: P.enemies,
+      terrain: [],
+      waves: [],
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// SIEGE — Fortress (Assassination behind fortifications)
+// ---------------------------------------------------------------------------
+
+const fortress: EncounterTemplate = {
+  id: 'fortress',
+  name: 'Fortress',
+  objective: 'ASSASSINATION',
+  blurb: 'Break the walls, capture the King.',
+  acts: [1, 2, 3],
+  weight: 2,
+  generate(ctx) {
+    const P = new Placer(ctx);
+    const kingFile = pick(ctx, [1, 2, 5, 6]);
+    P.put('king', sqOf(kingFile, 7));
+    // Pawn shield in front of the King.
+    const shieldCount = [0, ctx.rng.range(2, 3), ctx.rng.range(3, 4), ctx.rng.range(4, 5)][ctx.act];
+    const shield = P.region(nearFiles(kingFile, 1), [6, 6]);
+    for (let i = 0; i < shieldCount; i++) P.putIn('pawn', shield.length ? shield : P.region(nearFiles(kingFile, 2), [5, 6]));
+    // Major defenders.
+    const majors = [0, ctx.rng.range(1, 2), ctx.rng.range(2, 3), 3][ctx.act];
+    const majorTypes: PieceType[] = ctx.act >= 3 ? ['rook', 'bishop', 'knight', 'queen'] : ['rook', 'bishop', 'knight'];
+    for (let i = 0; i < majors; i++) P.putIn(pick(ctx, majorTypes), P.region(nearFiles(kingFile, 3), [5, 7]));
+    // Walls: a broken rampart on rank 6 or 5 that leaves gaps.
+    if (ctx.act >= 2 || ctx.rng.chance(0.6)) {
+      const wallRank = ctx.rng.chance(0.5) ? 5 : 4;
+      const files = [clampFile(kingFile - 2), clampFile(kingFile + 2), clampFile(kingFile - 1), clampFile(kingFile + 1)];
+      const wallCount = ctx.rng.range(2, 3);
+      for (const f of ctx.rng.shuffle(files).slice(0, wallCount)) P.wall(sqOf(f, wallRank));
+    }
+    return {
+      name: 'Fortress',
+      objective: { type: 'ASSASSINATION' },
+      turnLimit: turnLimitFor(ctx, actTuning(ctx.act).turnLimit, 1),
+      enemyActions: baseActions(ctx),
+      profile: { kind: 'guard_king' },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [],
+    };
+  },
+  safe(ctx) {
+    const P = new Placer(ctx);
+    P.put('king', parseSq('g8'));
+    for (const s of ['f7', 'h7']) P.put('pawn', parseSq(s));
+    P.put('rook', parseSq('f8'));
+    P.wall(parseSq('e6'));
+    P.wall(parseSq('h5'));
+    if (ctx.act >= 2) P.put('knight', parseSq('e7'));
+    return {
+      name: 'Fortress',
+      objective: { type: 'ASSASSINATION' },
+      turnLimit: actTuning(ctx.act).turnLimit[1] + 1,
+      enemyActions: actTuning(ctx.act).enemyActions[0],
+      profile: { kind: 'guard_king' },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [],
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// ELIMINATION — Hunt
+// ---------------------------------------------------------------------------
+
+const hunt: EncounterTemplate = {
+  id: 'hunt',
+  name: 'Hunt',
+  objective: 'ELIMINATION',
+  blurb: 'Capture every marked target.',
+  acts: [1, 2, 3],
+  weight: 3,
+  generate(ctx) {
+    const P = new Placer(ctx);
+    const targets = [0, 2, 3, ctx.rng.range(3, 4)][ctx.act];
+    const targetTypes: PieceType[] = ctx.act >= 3 ? ['knight', 'bishop', 'rook', 'queen'] : ['knight', 'bishop', 'rook'];
+    const halves: [number, number][] = [
+      [0, 3],
+      [4, 7],
+    ];
+    for (let i = 0; i < targets; i++) {
+      const files = halves[i % 2];
+      P.putIn(pick(ctx, targetTypes), P.region(files, [4, 6]), ['target']);
+    }
+    const escorts = [0, ctx.rng.range(2, 3), ctx.rng.range(3, 4), ctx.rng.range(4, 5)][ctx.act];
+    for (let i = 0; i < escorts; i++) P.putIn('pawn', P.region([0, 7], [4, 6]));
+    const guards = [0, ctx.rng.range(0, 1), ctx.rng.range(1, 2), 2][ctx.act];
+    for (let i = 0; i < guards; i++) P.putIn(minorPiece(ctx), P.region([0, 7], [6, 7]));
+    if (ctx.rng.chance(actTuning(ctx.act).terrainChance)) P.scatterRubble(ctx.rng.range(2, 4));
+    return {
+      name: 'Hunt',
+      objective: { type: 'ELIMINATION' },
+      turnLimit: turnLimitFor(ctx, actTuning(ctx.act).turnLimit),
+      enemyActions: baseActions(ctx),
+      profile: { kind: 'hold_line', rank: 4 },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [],
+    };
+  },
+  safe(ctx) {
+    const P = new Placer(ctx);
+    P.put('knight', parseSq('c6'), ['target']);
+    P.put('bishop', parseSq('f6'), ['target']);
+    if (ctx.act >= 2) P.put('rook', parseSq('h7'), ['target']);
+    for (const s of ['b5', 'e6', 'g5']) P.put('pawn', parseSq(s));
+    return {
+      name: 'Hunt',
+      objective: { type: 'ELIMINATION' },
+      turnLimit: actTuning(ctx.act).turnLimit[1] + 1,
+      enemyActions: actTuning(ctx.act).enemyActions[0],
+      profile: { kind: 'hold_line', rank: 4 },
+      enemies: P.enemies,
+      terrain: [],
+      waves: [],
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// SURVIVAL — Last Stand
+// ---------------------------------------------------------------------------
+
+const lastStand: EncounterTemplate = {
+  id: 'last_stand',
+  name: 'Last Stand',
+  objective: 'SURVIVAL',
+  blurb: 'Keep your King alive.',
+  acts: [1, 2, 3],
+  weight: 2,
+  generate(ctx) {
+    const P = new Placer(ctx);
+    const force: PieceType[][] = [
+      [],
+      ['knight', 'knight', 'bishop', 'rook', 'pawn', 'pawn'],
+      ['knight', 'bishop', 'bishop', 'rook', 'rook', 'pawn', 'pawn', 'pawn'],
+      ['knight', 'knight', 'bishop', 'rook', 'rook', 'queen', 'pawn', 'pawn', 'pawn'],
+    ];
+    for (const t of force[ctx.act]) P.putIn(t, t === 'pawn' ? P.region([0, 7], [5, 6]) : P.region([0, 7], [6, 7]));
+    const waveTypes: PieceType[] = ctx.act >= 2 ? ['knight', 'bishop', 'rook'] : ['knight', 'bishop'];
+    const backRank = P.region([0, 7], [7, 7]);
+    const wave = (phase: number, n: number) => ({
+      phase,
+      pieces: Array.from({ length: n }, () => backRank.splice(ctx.rng.int(Math.max(1, backRank.length)), 1)[0])
+        .filter((sq) => sq !== undefined)
+        .map((sq) => ({ type: pick(ctx, waveTypes), sq })),
+    });
+    const T = [0, 5, 6, 6][ctx.act];
+    return {
+      name: 'Last Stand',
+      objective: { type: 'SURVIVAL' },
+      turnLimit: T,
+      enemyActions: baseActions(ctx) + 1,
+      profile: { kind: 'hunter', target: 'king' },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [wave(2, ctx.act >= 2 ? 2 : 1), wave(4, ctx.act >= 3 ? 2 : 1)],
+    };
+  },
+  safe(ctx) {
+    const P = new Placer(ctx);
+    for (const s of ['b8', 'g8']) P.put('knight', parseSq(s));
+    P.put('rook', parseSq('a8'));
+    for (const s of ['c6', 'f6']) P.put('pawn', parseSq(s));
+    return {
+      name: 'Last Stand',
+      objective: { type: 'SURVIVAL' },
+      turnLimit: 5,
+      enemyActions: actTuning(ctx.act).enemyActions[0] + 1,
+      profile: { kind: 'hunter', target: 'king' },
+      enemies: P.enemies,
+      terrain: [],
+      waves: [{ phase: 2, pieces: [{ type: 'bishop', sq: parseSq('c8') }] }],
+    };
+  },
+};
+
+export const TEMPLATES: EncounterTemplate[] = [skirmish, fortress, hunt, lastStand];
+
+export function templateById(id: string): EncounterTemplate {
+  const t = TEMPLATES.find((x) => x.id === id);
+  if (!t) throw new Error(`Unknown template: ${id}`);
+  return t;
+}
+
+export type { TemplateOutput };

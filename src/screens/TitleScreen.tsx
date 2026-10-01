@@ -17,6 +17,9 @@ export function TitleScreen() {
         <p className="mt-3 max-w-md text-ink-200">Every run starts as chess. By the end, it's your chess.</p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-3">
+        <button type="button" className="btn btn-gold" onClick={() => go('sandbox')}>
+          Encounter Sandbox
+        </button>
         <button type="button" className="btn" onClick={() => go('hotseat')}>
           Hot-seat Test Board
         </button>
