@@ -65,6 +65,9 @@ jobs:
     name: Deploy to GitHub Pages
     needs: [build, pages-check]
     if: needs.pages-check.outputs.enabled == 'true'
+    # Deployment depends on repository settings (Pages source, github-pages environment branch rules).
+    # A rejected deployment is reported on this job but does not mark the code checks as failed.
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       pages: write
