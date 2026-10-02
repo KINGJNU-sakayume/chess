@@ -1,8 +1,8 @@
 import { Rng } from '../rng/rng';
-import type { Position } from '../game/position';
+import { Position, START_FEN } from '../game/position';
 import { baseRules, type SideRules } from '../game/rules';
 import type { Color } from '../game/types';
-import { CARDS, TIERS, cardById, type Tier } from './cards';
+import { CARDS, TIERS, cardById, conflictsWith, type DraftContext, type Tier } from './cards';
 
 /** A draft round opens before White's move on these plies (game start, move 10, move 20). */
 export const DRAFT_PLIES: readonly number[] = [0, 18, 38];
@@ -39,11 +39,8 @@ export function rollOffer(opts: {
 }): string[] {
   const { pos, color, owned, seed, round, tier, rerollIndex, exclude = [] } = opts;
   const rng = Rng.fromSeed(seed, `offer:${round}:${color}:${rerollIndex}`);
-  const ctx = { pos, color, round };
-  const ok = (id: string) => {
-    const c = cardById(id);
-    return !owned.includes(id) && (!c.offerable || c.offerable(ctx));
-  };
+  const ctx: DraftContext = { pos, color, round, owned };
+  const ok = (id: string) => canTake(id, owned, ctx);
   const order: Tier[] = [tier, ...TIERS.filter((t) => t !== tier).sort((a, b) => Math.abs(TIERS.indexOf(a) - TIERS.indexOf(tier)) - Math.abs(TIERS.indexOf(b) - TIERS.indexOf(tier)))];
   const out: string[] = [];
   for (const t of order) {
@@ -56,6 +53,26 @@ export function rollOffer(opts: {
     if (out.length >= OFFER_SIZE) break;
   }
   return out;
+}
+
+/**
+ * Draft context for a loadout that is brought into every game (runs): the
+ * starting position with the side's rules and start-of-game effects applied,
+ * as `applyLoadout` in the match does.
+ */
+export function loadoutContext(owned: readonly string[], color: Color): DraftContext {
+  const pos = Position.fromFen(START_FEN);
+  pos.setRules(color, compileRules(owned));
+  for (const id of owned) cardById(id).onAcquire?.(pos, color);
+  pos.commit();
+  pos.refresh();
+  return { pos, color, round: 1, owned };
+}
+
+/** May a side that owns `owned` (with `ctx` describing its games) take `id`? */
+export function canTake(id: string, owned: readonly string[], ctx: DraftContext): boolean {
+  const c = cardById(id);
+  return !owned.includes(id) && !conflictsWith(id, owned) && (!c.offerable || c.offerable(ctx));
 }
 
 /** Fold every owned passive card into a side's rules. */

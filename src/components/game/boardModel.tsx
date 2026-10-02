@@ -49,14 +49,15 @@ export function kindNotes(pos: Position, color: Color, kind: number): string[] {
   if (kind === ROOK && r.rookStep) out.push('대각선 한 칸 추가');
   if (kind === QUEEN && r.queenKnight) out.push('나이트 행마 추가(아마존)');
   if (kind === KING && r.kingRange > 1) out.push('두 칸까지 이동');
-  if (kind === ARCHBISHOP) out.push('비숍 + 나이트 행마');
-  if (kind === CHANCELLOR) out.push('룩 + 나이트 행마');
+  if (kind === ARCHBISHOP) out.push(r.bishopStep ? '비숍 + 나이트 행마, 상하좌우 한 칸 추가' : '비숍 + 나이트 행마');
+  if (kind === CHANCELLOR) out.push(r.rookStep ? '룩 + 나이트 행마, 대각선 한 칸 추가' : '룩 + 나이트 행마');
   if (kind === PAWN) {
-    if (r.pawnSidestep) out.push('좌우 이동');
+    if (r.pawnSidestep) out.push('좌우 이동·잡기');
     if (r.pawnCharge) out.push('어디서나 두 칸 전진');
     if (r.pawnPike) out.push('정면 잡기');
-    if (r.pawnRetreat) out.push('뒤로 한 칸');
+    if (r.pawnRetreat) out.push('뒤로 한 칸, 대각선 뒤로 잡기');
     if (r.martyrPawns) out.push('잡히면 상대도 제거(순교)');
+    if (r.pawnOath) out.push('잡으면 보호막');
     if (r.promoRank < 7) out.push(`${color === WHITE ? r.promoRank + 1 : 8 - r.promoRank}번째 줄에서 승진`);
     if (r.breakthrough) out.push('승진하면 승리(돌파)');
   }

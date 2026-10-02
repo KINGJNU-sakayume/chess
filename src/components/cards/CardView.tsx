@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CATEGORY_NAME, TIER_NAME, cardById, type Tier } from '../../engine/augments/cards';
+import { CATEGORY_NAME, TIER_NAME, cardById, conflictNames, type Tier } from '../../engine/augments/cards';
 import { CardIcon } from './CardIcon';
 import { TIER_STYLE } from './tierStyle';
 
@@ -54,6 +54,7 @@ export function CardView({
 }) {
   const def = cardById(id);
   const t = TIER_STYLE[def.tier];
+  const conflicts = conflictNames(id);
   const body = (
     <div className="card-inner flex h-full flex-col gap-3 p-4 text-left">
       <div className="flex items-center gap-3">
@@ -70,6 +71,7 @@ export function CardView({
         </div>
       </div>
       <p className="text-sm leading-relaxed text-ink-100">{def.text}</p>
+      {conflicts.length ? <p className="text-xs text-blood-300">함께 가질 수 없음: {conflicts.map((n) => `「${n}」`).join(', ')}</p> : null}
       {inRun && def.onAcquire ? <p className="text-xs text-gold-400">도전에서는 매 대국 시작 시 적용됩니다.</p> : null}
       {inRun && def.kind === 'active' ? <p className="text-xs text-arcane-300">사용 횟수는 대국마다 다시 채워집니다.</p> : null}
       {footer}

@@ -152,7 +152,14 @@ export function think(req: ThinkRequest): ThinkResult {
 }
 
 /** The AI's draft pick: the card worth most to it right now, with level-dependent noise. */
-export function pickDraft(posData: PositionData, color: Color, offer: readonly string[], levelN: number, seed: string): string {
+export function pickDraft(
+  posData: PositionData,
+  color: Color,
+  offer: readonly string[],
+  levelN: number,
+  seed: string,
+  owned: readonly string[] = [],
+): string {
   const pos = Position.fromData(posData);
   const level = levelOf(levelN);
   const rng = Rng.fromSeed(seed, `draft:${pos.ply}:${color}`);
@@ -160,7 +167,7 @@ export function pickDraft(posData: PositionData, color: Color, offer: readonly s
   let best = offer[0];
   let bestV = -Infinity;
   for (const id of offer) {
-    const v = cardById(id).aiValue({ pos, color, round }) + rng.range(-level.draftNoise, level.draftNoise);
+    const v = cardById(id).aiValue({ pos, color, round, owned }) + rng.range(-level.draftNoise, level.draftNoise);
     if (v > bestV) {
       bestV = v;
       best = id;

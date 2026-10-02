@@ -546,6 +546,22 @@ export class Position {
       if (f < 7 && board[behind + 1] === pawn && !(flags[behind + 1] & F_FROZEN)) return true;
       if (this.rules[by].pawnPike && board[behind] === pawn && !(flags[behind] & F_FROZEN)) return true;
     }
+    const pr = this.rules[by];
+    if (pr.pawnSidestep || pr.pawnRetreat) {
+      const f = sq & 7;
+      // Sidestep: a pawn right beside sq captures sideways.
+      if (pr.pawnSidestep) {
+        if (f > 0 && board[sq - 1] === pawn && !(flags[sq - 1] & F_FROZEN)) return true;
+        if (f < 7 && board[sq + 1] === pawn && !(flags[sq + 1] & F_FROZEN)) return true;
+      }
+      // Retreat: a pawn one step "ahead" of sq captures diagonally backwards (never onto its back rank).
+      const ahead = sq + (by === WHITE ? 8 : -8);
+      const rel = by === WHITE ? sq >> 3 : 7 - (sq >> 3);
+      if (pr.pawnRetreat && rel >= 1 && ahead >= 0 && ahead < 64) {
+        if (f > 0 && board[ahead - 1] === pawn && !(flags[ahead - 1] & F_FROZEN)) return true;
+        if (f < 7 && board[ahead + 1] === pawn && !(flags[ahead + 1] & F_FROZEN)) return true;
+      }
+    }
     // Leapers (every leap set is symmetric).
     for (let s = 0; s < LEAP_SET_COUNT; s++) {
       const mask = prof.leapMask[s];
@@ -697,18 +713,26 @@ export class Position {
         }
       }
     }
-    if (noisy) return n;
     if (rules.pawnSidestep) {
       for (let df = -1; df <= 1; df += 2) {
         const f = file + df;
         if (f < 0 || f > 7) continue;
         const to = sq + df;
-        if (board[to] === 0 && terrain[to] !== T_WALL) n = this.pushPawnMove(out, n, sq, to, 0, false);
+        const t = board[to];
+        if (t !== 0) {
+          if (t >> 4 !== us) n = this.pushPawnMove(out, n, sq, to, M_CAPTURE, noisy);
+        } else if (!noisy && terrain[to] !== T_WALL) n = this.pushPawnMove(out, n, sq, to, 0, false);
       }
     }
     if (rules.pawnRetreat && rel >= 2) {
-      const to = sq - fwd;
-      if (board[to] === 0 && terrain[to] !== T_WALL) n = this.pushPawnMove(out, n, sq, to, 0, false);
+      const back = sq - fwd;
+      if (!noisy && board[back] === 0 && terrain[back] !== T_WALL) n = this.pushPawnMove(out, n, sq, back, 0, false);
+      for (let df = -1; df <= 1; df += 2) {
+        const f = file + df;
+        if (f < 0 || f > 7) continue;
+        const t = board[back + df];
+        if (t !== 0 && t >> 4 !== us) n = this.pushPawnMove(out, n, sq, back + df, M_CAPTURE, noisy);
+      }
     }
     return n;
   }
@@ -792,6 +816,8 @@ export class Position {
         this.setFlags(capSq, vf & ~F_SHIELD);
         this.halfmove = 0;
         this.finishTurn(us, them);
+        // Thorns: the attacker freezes through its owner's next turn (set after finishTurn thawed this one).
+        if (this.rules[them].thornShield && moverKind !== KING) this.setFlags(from, this.flags[from] | F_FROZEN);
         return;
       }
       victimKind = victim & 15;
@@ -837,7 +863,11 @@ export class Position {
     if (alive && victimKind === PAWN && this.rules[them].martyrPawns && (landed & 15) !== KING) {
       alive = !this.destroy(to);
     }
-    if (alive && victimKind && (landed & 15) === KNIGHT && this.rules[us].knightOath) {
+    if (
+      alive &&
+      victimKind &&
+      (((landed & 15) === KNIGHT && this.rules[us].knightOath) || (moverKind === PAWN && this.rules[us].pawnOath))
+    ) {
       this.setFlags(to, this.flags[to] | F_SHIELD);
     }
     if (promo && this.rules[us].breakthrough && this.winner < 0) {
@@ -862,13 +892,6 @@ export class Position {
       }
     }
     const r = this.rules[us];
-    if (this.winner < 0 && r.kingOfTheHill) {
-      const k = this.kingSq[us];
-      if (k === CENTER_SQUARES[0] || k === CENTER_SQUARES[1] || k === CENTER_SQUARES[2] || k === CENTER_SQUARES[3]) {
-        this.winner = us;
-        this.winReason = WIN_HILL;
-      }
-    }
     if (this.winner < 0 && r.threeCheck) {
       const k = this.kingSq[them];
       if (k >= 0 && this.isAttacked(k, us)) {
@@ -879,16 +902,33 @@ export class Position {
         }
       }
     }
+    this.checkHill(them);
     this.side = them;
     this.hashLo ^= Z_SIDE_LO;
     this.hashHi ^= Z_SIDE_HI;
     this.ply++;
   }
 
+  /** Does `color` hold the hill (King of the Hill and its King on a centre square)? */
+  onHill(color: Color): boolean {
+    if (!this.rules[color].kingOfTheHill) return false;
+    const k = this.kingSq[color];
+    return k === CENTER_SQUARES[0] || k === CENTER_SQUARES[1] || k === CENTER_SQUARES[2] || k === CENTER_SQUARES[3];
+  }
+
+  /** King of the Hill: a King still on the hill when the opponent's turn ends wins. */
+  private checkHill(color: Color): void {
+    if (this.winner < 0 && this.onHill(color)) {
+      this.winner = color;
+      this.winReason = WIN_HILL;
+    }
+  }
+
   /** Pass the turn without moving (null-move pruning only). */
   makeNullMove(): void {
     this.push();
     this.setEp(-1);
+    this.checkHill((this.side ^ 1) as Color);
     this.side = (this.side ^ 1) as Color;
     this.hashLo ^= Z_SIDE_LO;
     this.hashHi ^= Z_SIDE_HI;

@@ -39,6 +39,9 @@ export interface SearchResult {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Score of a finished game for the side to move (usually the loser; a King of the Hill winner moves next). */
+const terminal = (pos: Position, ply: number): number => (pos.winner === pos.side ? WIN - ply : -(WIN - ply));
+
 export class Searcher {
   pos: Position;
   nodes = 0;
@@ -174,7 +177,8 @@ export class Searcher {
     for (const m of list) {
       pos.makeMove(m);
       this.pushRep();
-      const score = pos.winner >= 0 ? WIN - 1 : -this.negamax(depth - 1, -WIN, WIN, 1, true);
+      // The game may end on this move for either side (King of the Hill is won by the side to move next).
+      const score = pos.winner >= 0 ? (pos.winner === pos.side ? -(WIN - 1) : WIN - 1) : -this.negamax(depth - 1, -WIN, WIN, 1, true);
       this.repTop--;
       pos.unmakeMove();
       out.push({ move: m, score });
@@ -211,7 +215,7 @@ export class Searcher {
   private negamax(depth: number, alpha: number, beta: number, ply: number, allowNull: boolean): number {
     const pos = this.pos;
     this.pvLength[ply] = 0;
-    if (pos.winner >= 0) return -(WIN - ply);
+    if (pos.winner >= 0) return terminal(pos, ply);
     if (ply > 0) {
       if (pos.halfmove >= 100 || this.isRepetition()) return 0;
       // Mate distance pruning.
@@ -332,7 +336,7 @@ export class Searcher {
   private quiesce(alpha: number, beta: number, ply: number, qdepth: number): number {
     const pos = this.pos;
     this.pvLength[ply] = 0;
-    if (pos.winner >= 0) return -(WIN - ply);
+    if (pos.winner >= 0) return terminal(pos, ply);
     this.nodes++;
     this.checkTime();
     if (this.stopped) return 0;
@@ -340,7 +344,8 @@ export class Searcher {
 
     const us = pos.side as Color;
     // When the King is attacked, standing pat is not an option for the first plies: look at every move.
-    const evasion = qdepth < 2 && pos.inCheck(us);
+    // Neither is it when the opponent's King holds the hill: it wins unless it is captured now.
+    const evasion = (qdepth < 2 && pos.inCheck(us)) || pos.onHill((us ^ 1) as Color);
     let best = -WIN - 1;
     if (!evasion) {
       const stand = evaluate(pos);

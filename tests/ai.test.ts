@@ -35,6 +35,22 @@ describe('search', () => {
     expect(best('4k3/8/8/8/8/4K3/8/8 w - - 0 1', 2, ['king_of_the_hill'])).toMatch(/^e3(d4|e4)$/);
   });
 
+  it('picks the hill square the opponent cannot reach, at every level', () => {
+    // d4 is covered by the rook; e4 is safe and wins after Black's reply.
+    const fen = '3rk3/8/8/8/8/4K3/8/8 w - - 0 1';
+    expect(best(fen, 3, ['king_of_the_hill'])).toBe('e3e4');
+    for (const level of [1, 2, 3]) {
+      const pos = Position.fromFen(fen, [compileRules(['king_of_the_hill']), compileRules([])]);
+      const r = think({ pos: pos.toData(), history: [], level, cards: [], cardAllowed: false, seed: 'hill' });
+      expect(uci(r.move)).toBe('e3e4');
+    }
+  });
+
+  it('captures a King that holds the hill', () => {
+    expect(best('3rk3/8/8/8/3K4/8/8/8 b - - 0 1', 2, ['king_of_the_hill'])).toBe('d8d4');
+    expect(best('3rk3/8/8/8/3K4/8/8/8 b - - 0 1', 5, ['king_of_the_hill'])).toBe('d8d4');
+  });
+
   it('respects shields: does not capture into a bounce when it loses material', () => {
     const pos = Position.fromFen('4k3/8/8/3p4/8/8/8/3QK3 w - - 0 1');
     pos.setFlags(sq('d5'), 1);

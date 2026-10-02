@@ -127,7 +127,7 @@ export const useGame = create<GameStore>((set, get) => {
         if (token !== aiToken) return;
         const cur = get().match;
         if (!cur || cur.phase !== 'draft' || !cur.sides[ai].offer) return;
-        commit({ type: 'pick', color: ai, card: pickDraft(cur.pos.toData(), ai, cur.sides[ai].offer!, cur.setup.level, cur.setup.seed) });
+        commit({ type: 'pick', color: ai, card: pickDraft(cur.pos.toData(), ai, cur.sides[ai].offer!, cur.setup.level, cur.setup.seed, cur.sides[ai].cards.map((c) => c.id)) });
         drive();
       }, 350);
       return;
@@ -192,7 +192,13 @@ export const useGame = create<GameStore>((set, get) => {
 
     restore: (setup, actions) => {
       reset();
-      const match = replay(setup, actions);
+      let match: MatchState;
+      try {
+        match = replay(setup, actions);
+      } catch {
+        // A save from before a rules change may no longer replay: start that game over rather than lose the run.
+        match = createMatch(setup);
+      }
       set({ match, selected: null, targeting: null, promotion: null, thinking: false, reveal: null, notice: null });
       drive();
     },

@@ -8,21 +8,21 @@ import { LEAP_CAMEL, LEAP_DIAG, LEAP_KNIGHT, LEAP_ORTHO, LEAP_SET_COUNT } from '
 export interface SideRules {
   /** Knights also leap (3,1). */
   knightCamel: boolean;
-  /** Bishops also step one square orthogonally. */
+  /** Bishops (and Archbishops) also step one square orthogonally. */
   bishopStep: boolean;
-  /** Rooks also step one square diagonally. */
+  /** Rooks (and Chancellors) also step one square diagonally. */
   rookStep: boolean;
   /** Queens also move like a knight (Amazon). */
   queenKnight: boolean;
   /** How far the King moves in each direction (1 or 2). */
   kingRange: number;
-  /** Pawns may step sideways (no capture). */
+  /** Pawns may step or capture sideways. */
   pawnSidestep: boolean;
   /** Pawns may advance two squares from any rank. */
   pawnCharge: boolean;
   /** Pawns may capture straight ahead. */
   pawnPike: boolean;
-  /** Pawns may step back one square (no capture, never onto the back rank). */
+  /** Pawns may step back one square or capture diagonally backwards (never onto the back rank). */
   pawnRetreat: boolean;
   /** Relative rank (0..7) on or beyond which a pawn promotes. 7 = orthodox. */
   promoRank: number;
@@ -30,7 +30,11 @@ export interface SideRules {
   martyrPawns: boolean;
   /** A Knight that captures gains a shield. */
   knightOath: boolean;
-  /** Win by bringing the King to d4, e4, d5 or e5. */
+  /** A pawn that captures gains a shield. */
+  pawnOath: boolean;
+  /** When one of these shields stops a capture, the attacker (not a King) is frozen. */
+  thornShield: boolean;
+  /** Win when the King still stands on d4, e4, d5 or e5 after the opponent's turn. */
   kingOfTheHill: boolean;
   /** Win by checking the enemy King three times. */
   threeCheck: boolean;
@@ -51,6 +55,8 @@ export const BASE_RULES: Readonly<SideRules> = {
   promoRank: 7,
   martyrPawns: false,
   knightOath: false,
+  pawnOath: false,
+  thornShield: false,
   kingOfTheHill: false,
   threeCheck: false,
   breakthrough: false,
@@ -96,9 +102,11 @@ export function buildProfile(r: SideRules): Profile {
 
   setRays(ARCHBISHOP, DIAG, 7);
   leapSets[ARCHBISHOP].push(LEAP_KNIGHT);
+  if (r.bishopStep) leapSets[ARCHBISHOP].push(LEAP_ORTHO);
 
   setRays(CHANCELLOR, ORTHO, 7);
   leapSets[CHANCELLOR].push(LEAP_KNIGHT);
+  if (r.rookStep) leapSets[CHANCELLOR].push(LEAP_DIAG);
 
   const leapMask = new Int32Array(LEAP_SET_COUNT);
   for (let kind = 0; kind < 9; kind++) for (const s of leapSets[kind]) leapMask[s] |= 1 << kind;

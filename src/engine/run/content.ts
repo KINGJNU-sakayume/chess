@@ -52,37 +52,37 @@ export const ARCHETYPES: readonly Archetype[] = [
     id: 'knights',
     names: ['떠돌이 기사', '용병 기사단', '흑기사 대장'],
     blurb: '나이트를 앞세워 파고드는 상대입니다.',
-    cards: ['camel_knight', 'knight_oath', 'vanguard', 'conscript', 'mercenary_rook'],
+    cards: ['camel_knight', 'knight_oath', 'conscript', 'vanguard', 'mercenary_rook'],
   },
   {
     id: 'clergy',
     names: ['순례자', '수도원장', '이단 심문관'],
     blurb: '비숍을 강화하고 쓰러진 기물을 되살립니다.',
-    cards: ['bishop_step', 'ordain', 'resurrect', 'shield', 'cavalry_order'],
+    cards: ['bishop_step', 'ordain', 'resurrect', 'shield', 'revival', 'cavalry_order'],
   },
   {
     id: 'wall',
     names: ['성문 수비대', '요새 공병', '철벽 수문장'],
     blurb: '보호막과 바리케이드로 버팁니다.',
-    cards: ['barricade', 'shield', 'royal_aegis', 'royal_guard', 'mercenary_rook', 'divine_aegis'],
+    cards: ['barricade', 'shield', 'royal_aegis', 'royal_guard', 'thorns', 'mercenary_rook', 'divine_aegis'],
   },
   {
     id: 'pawns',
     names: ['농민 반란군', '민병대장', '돌격 보병대'],
     blurb: '폰을 밀어붙여 승진을 노립니다.',
-    cards: ['pawn_charge', 'pawn_pike', 'pawn_sidestep', 'martyr_pawns', 'early_promotion', 'reinforce', 'coronation'],
+    cards: ['pawn_charge', 'pawn_pike', 'pawn_sidestep', 'pawn_grit', 'knighting', 'martyr_pawns', 'early_promotion', 'reinforce', 'coronation'],
   },
   {
     id: 'duelist',
     names: ['결투가', '검투사', '전쟁광'],
     blurb: '킹까지 앞세우는 공격적인 상대입니다.',
-    cards: ['warrior_king', 'rook_step', 'sniper', 'appoint', 'freeze', 'amazon'],
+    cards: ['warrior_king', 'rook_step', 'sniper', 'shield_breaker', 'appoint', 'demote', 'freeze', 'amazon'],
   },
   {
     id: 'trickster',
     names: ['함정꾼', '첩자', '암살자'],
     blurb: '함정과 동결로 허를 찌릅니다.',
-    cards: ['minefield', 'freeze', 'sniper', 'barricade', 'three_check'],
+    cards: ['minefield', 'freeze', 'sniper', 'barricade', 'demote', 'three_check', 'ice_age'],
   },
 ];
 
@@ -132,7 +132,7 @@ export const BOSSES: Readonly<Record<number, BossDef[]>> = {
     {
       id: 'hill_king',
       name: '언덕의 왕',
-      blurb: '킹이 중앙 네 칸에 오르면 승리합니다. 두 번째 여왕이 그 길을 엽니다.',
+      blurb: '킹이 중앙 네 칸에 올라 한 턴을 버티면 승리합니다. 두 번째 여왕이 그 길을 열고, 왕관의 가호가 킹을 지킵니다.',
       cards: ['king_of_the_hill', 'warrior_king', 'royal_aegis', 'second_queen', 'freeze'],
     },
   ],

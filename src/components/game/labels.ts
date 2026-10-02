@@ -11,7 +11,7 @@ export function sideName(m: MatchState, c: Color): string {
 
 const REASON_TEXT: Record<ResultReason, string> = {
   king: '킹을 잡았습니다',
-  hill: '킹이 언덕(중앙)에 올랐습니다',
+  hill: '킹이 언덕(중앙)을 지켜 냈습니다',
   three_check: '상대 킹을 세 번 체크했습니다',
   breakthrough: '폰이 승진해 돌파했습니다',
   no_moves: '둘 수 있는 수가 없어 졌습니다',

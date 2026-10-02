@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { cardById } from '../src/engine/augments/cards';
+import { cardById, conflictsWith } from '../src/engine/augments/cards';
 import { WHITE } from '../src/engine/game/types';
 import { createMatch } from '../src/engine/match/match';
-import { BOSSES } from '../src/engine/run/content';
+import { BOSSES, REWARD_WEIGHTS } from '../src/engine/run/content';
 import { EVENTS } from '../src/engine/run/events';
 import { MAP_ROWS, generateMap, reachable } from '../src/engine/run/map';
 import { battleSetup, createRun, nextNodes, runAction } from '../src/engine/run/reducer';
+import { makeEnemy, offerCards, rollRng } from '../src/engine/run/rolls';
 import type { RunState } from '../src/engine/run/types';
 
 describe('act maps', () => {
@@ -161,6 +162,47 @@ describe('run flow', () => {
     }
     expect(levels[1]).toBeLessThan(levels[3]);
     expect(counts[1]).toBeLessThan(counts[3]);
+  });
+
+  it('every reward offer is a single tier, with no owned, conflicting or dead cards', () => {
+    for (let i = 0; i < 60; i++) {
+      const run = createRun(`tier${i}`, 1);
+      run.augments = [
+        { id: 'breakthrough', bonus: 0 },
+        { id: 'cavalry_order', bonus: 0 },
+      ];
+      for (const weights of [REWARD_WEIGHTS.battle[2], REWARD_WEIGHTS.elite[0], REWARD_WEIGHTS.treasure[1]]) {
+        const cards = offerCards(run, rollRng(run, 'test'), weights);
+        expect(cards).toHaveLength(3);
+        expect(new Set(cards.map((id) => cardById(id).tier)).size).toBe(1);
+        for (const id of cards) {
+          expect(['breakthrough', 'cavalry_order', 'early_promotion', 'ordain']).not.toContain(id);
+          expect(cardById(id).run).not.toBe(false);
+        }
+      }
+    }
+    // Thorns needs a shield source among the cards the player brings.
+    const bare = createRun('thorns', 1);
+    const offered = new Set<string>();
+    for (let i = 0; i < 80; i++) for (const id of offerCards(bare, rollRng(bare, 'g'), [0, 100, 0])) offered.add(id);
+    expect(offered.has('thorns')).toBe(false);
+    bare.augments = [{ id: 'royal_guard', bonus: 0 }];
+    for (let i = 0; i < 80; i++) for (const id of offerCards(bare, rollRng(bare, 'g'), [0, 100, 0])) offered.add(id);
+    expect(offered.has('thorns')).toBe(true);
+  });
+
+  it('enemies never carry conflicting augments', () => {
+    for (let i = 0; i < 40; i++) {
+      for (const act of [1, 2, 3]) {
+        const run = createRun(`enemy${i}`, 2);
+        run.act = act;
+        for (const kind of ['battle', 'elite'] as const) {
+          const e = makeEnemy(run, rollRng(run, 'e'), kind, 6);
+          expect(new Set(e.augments).size).toBe(e.augments.length);
+          e.augments.forEach((id, j) => expect(conflictsWith(id, e.augments.slice(0, j))).toBe(false));
+        }
+      }
+    }
   });
 
   it('forging adds uses per game', () => {

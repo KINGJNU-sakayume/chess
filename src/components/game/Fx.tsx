@@ -8,11 +8,12 @@ import type { MatchEvent, MatchEventKind } from '../../engine/match/match';
 const STYLE: Record<MatchEventKind, { color: string; label?: string; burst?: boolean }> = {
   capture: { color: '#e5675d', burst: true },
   bounce: { color: '#5ec8d6', label: '막힘!' },
+  thorns: { color: '#bfe8ff', label: '가시!' },
   trap: { color: '#ff9b4a', label: '함정!', burst: true },
   martyr: { color: '#ff7a5a', label: '순교!', burst: true },
   promote: { color: '#f3d98f', label: '승진!' },
   wall: { color: '#b5aac2', label: '파괴!', burst: true },
-  oath: { color: '#9fe6f0', label: '맹세!' },
+  oath: { color: '#9fe6f0', label: '보호막!' },
   card: { color: '#b48cff' },
   check: { color: '#f2958c', label: '체크!' },
 };

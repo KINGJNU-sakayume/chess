@@ -17,7 +17,9 @@
     "test:watch": "vitest",
     "ci": "npm run lint && npm run typecheck && npm run test && npm run build",
     "sim": "vitest run --config vitest.sim.config.ts tests/sim/runsim.test.ts --silent=false",
-    "sim:boss": "vitest run --config vitest.sim.config.ts tests/sim/bosssim.test.ts --silent=false"
+    "sim:boss": "vitest run --config vitest.sim.config.ts tests/sim/bosssim.test.ts --silent=false",
+    "sim:cards": "vitest run --config vitest.sim.config.ts tests/sim/cardsim.test.ts --silent=false",
+    "patch-notes": "node scripts/patch-notes.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",
