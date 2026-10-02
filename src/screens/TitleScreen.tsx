@@ -1,59 +1,50 @@
 import { useState } from 'react';
-import { useAppStore } from '../state/appStore';
-import { hasSavedRun, useRun } from '../state/runStore';
 import { PieceSvg } from '../components/board/PieceSvg';
+import { useAppStore } from '../state/appStore';
+import { hasSavedGame, useGame } from '../state/gameStore';
 
 export function TitleScreen() {
   const go = useAppStore((s) => s.go);
-  const run = useRun();
-  const [seed, setSeed] = useState('');
-  const [saved] = useState(hasSavedRun);
-  const startRun = () => {
-    const s = seed.trim() || `run-${Date.now().toString(36)}`;
-    run.start(s);
-    go('run');
-  };
+  const resume = useGame((s) => s.resume);
+  const current = useGame((s) => s.match);
+  const [saved] = useState(hasSavedGame);
+  const inProgress = current && current.phase !== 'over';
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-8 p-6 text-center">
       <div className="flex items-end gap-1 opacity-90">
-        {(['pawn', 'knight', 'bishop', 'king', 'queen', 'rook', 'pawn'] as const).map((t, i) => (
-          <PieceSvg key={i} type={t} side={i % 2 ? 'enemy' : 'player'} className={i === 3 ? 'h-20 w-20' : 'h-12 w-12'} />
+        {(['pawn', 'knight', 'archbishop', 'king', 'queen', 'chancellor', 'pawn'] as const).map((t, i) => (
+          <PieceSvg key={i} type={t} side={i % 2 ? 'black' : 'white'} className={i === 3 ? 'h-20 w-20' : 'h-12 w-12'} />
         ))}
       </div>
       <div>
-        <h1 className="font-display text-5xl font-extrabold text-gold-300 drop-shadow-[0_4px_18px_rgba(232,196,106,0.25)] sm:text-6xl">
-          Break Chess
-        </h1>
-        <p className="mt-3 max-w-md text-ink-200">Every run starts as chess. By the end, it's your chess.</p>
+        <div className="font-display text-sm tracking-[0.35em] text-gold-500">BREAK CHESS</div>
+        <h1 className="mt-1 font-serif-kr text-5xl font-bold text-gold-300 drop-shadow-[0_4px_18px_rgba(232,196,106,0.25)] sm:text-6xl">브레이크 체스</h1>
+        <p className="mt-4 max-w-md text-ink-200">정통 체스 위에 증강을 쌓아 올리는 대국. 게임 시작, 10수, 20수에 증강을 골라 매번 다른 체스를 둡니다.</p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-3">
-        {saved ? (
+        {inProgress ? (
+          <button type="button" className="btn btn-gold" onClick={() => go('game')}>
+            대국으로 돌아가기
+          </button>
+        ) : saved ? (
           <button
             type="button"
             className="btn btn-gold"
             onClick={() => {
-              if (run.resume()) go('run');
+              if (resume()) go('game');
             }}
           >
-            Continue run
+            이어하기
           </button>
         ) : null}
-        <div className="flex gap-2">
-          <input
-            className="w-0 flex-1 rounded-[10px] border border-ink-600 bg-ink-850 px-3 text-sm text-ink-100 placeholder:text-ink-400"
-            placeholder="Seed (optional)"
-            value={seed}
-            onChange={(e) => setSeed(e.target.value)}
-          />
-          <button type="button" className={`btn ${saved ? '' : 'btn-gold'}`} onClick={startRun}>
-            New run
-          </button>
-        </div>
-        <button type="button" className="btn" onClick={() => go('sandbox')}>
-          Encounter Sandbox
+        <button type="button" className={`btn ${inProgress || saved ? '' : 'btn-gold'}`} onClick={() => go('setup')}>
+          새 대국
         </button>
-        <button type="button" className="btn" onClick={() => go('hotseat')}>
-          Hot-seat Test Board
+        <button type="button" className="btn" onClick={() => go('codex')}>
+          증강 도감
+        </button>
+        <button type="button" className="btn" onClick={() => go('rules')}>
+          게임 규칙
         </button>
       </div>
     </div>

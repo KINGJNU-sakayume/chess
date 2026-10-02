@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Screen = 'title' | 'hotseat' | 'run' | 'sandbox' | 'settings';
+export type Screen = 'title' | 'setup' | 'game' | 'codex' | 'rules';
 
 interface AppStore {
   screen: Screen;

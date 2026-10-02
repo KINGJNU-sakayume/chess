@@ -1,31 +1,35 @@
-# Break Chess
+# 브레이크 체스 (Break Chess)
 
-A browser-playable chess roguelike. Every run begins close to normal chess; by repeatedly upgrading pieces,
-mutating the board, reshaping your starting formation and weakening enemy rules, you build **your own broken
-version of chess**.
+정통 체스 위에 **증강**을 쌓아 올리는 브라우저 체스 게임입니다. 게임 시작, 10수째, 20수째에 증강 카드 세 장 중 한 장을
+고르고, 바뀐 규칙으로 AI 또는 친구와 대국합니다. 매 판 규칙이 달라지므로 정석 암기보다 그 자리의 판단이 중요합니다.
 
-- Fully client-side: Vite + React + TypeScript + Tailwind CSS. No server, no paid APIs, no LLMs.
-- Deterministic engine with seeded PRNG streams; runs headless in tests and in balance simulations.
-- See [`DESIGN_DECISIONS.md`](./DESIGN_DECISIONS.md) for interpretations of the design brief and
-  [`docs/BALANCE.md`](./docs/BALANCE.md) for the latest balance simulation.
+- 서버 없이 브라우저에서만 동작합니다 (Vite + React + TypeScript + Tailwind CSS).
+- AI는 Web Worker에서 도는 알파-베타 탐색 엔진이며, 모든 증강 규칙을 이해하고 둡니다.
+- 설계 배경과 규칙 해석은 [`DESIGN_DECISIONS.md`](./DESIGN_DECISIONS.md)에 있습니다.
 
-## Playing
+## 플레이 방법
 
-From the title screen: **New run** (optionally with a seed), **Continue run** from the autosave, the **Encounter
-Sandbox** (any template or boss, act and seed) or the **Hot-seat Test Board** (plain two-player chess).
+타이틀 화면에서 **새 대국**을 고릅니다.
 
-- Click one of your pieces to see its moves: cyan dots are movement granted by upgrades, violet diamonds pierce.
-- Red arrows are the enemy's **committed intents**: they execute after your turn, exactly as shown, unless you dodge,
-  block, capture, immobilize or bait them. Numbered markers show a boss's route step by step.
-- Hover a piece to inspect its accumulated rules; **Details** (or `I`) switches between the compact and full view.
-- Keys: `Enter` End Turn · `Z` Undo · `Space` skip animations · `I` inspector details · `Esc` deselect.
-- Animation speed 1×, 2× or Instant is in the actions panel. The sandbox has a debug panel that grants any
-  upgrade or board square, to try combinations.
+- **AI와 대전**: 내 색(백/흑/무작위)과 난이도(입문·초급·중급·고급·마스터)를 고릅니다.
+- **둘이서 대전**: 한 화면에서 번갈아 둡니다.
+- **증강 도감**: 모든 증강 카드(실버 13 · 골드 11 · 프리즘 9)를 볼 수 있습니다.
+- **게임 규칙**: 규칙 요약입니다.
 
-A run is three acts of 9 rows each, ending in a boss: the Fortress King, the Tyrant Queen and the Pawn Emperor.
-You have three Crowns; losing an encounter costs one. Progress autosaves after every node and every End Turn.
+### 핵심 규칙
 
-## Development
+- 행마, 캐슬링, 앙파상, 승진은 일반 체스와 같고, **한 턴에는 언제나 한 수**만 둡니다.
+- 체크메이트 대신 **상대 킹을 잡으면 승리**합니다. 킹을 내주는 수도 둘 수 있으며, 보드에 빨간 점으로 경고합니다.
+- 둘 수 있는 수가 없으면 집니다. 50수 규칙, 3회 동형 반복, 킹만 남은 경우는 무승부입니다.
+- **증강 선택**: 게임 시작, 10수째, 20수째. 양쪽은 같은 라운드에서 같은 등급(실버·골드·프리즘)의 카드를 받고,
+  게임당 한 번 새로고침할 수 있습니다. 고른 카드는 공개됩니다.
+- **패시브** 카드는 고르는 즉시 적용됩니다. **액티브** 카드는 자기 턴에 수를 두기 전에 쓰며 턴을 쓰지 않습니다.
+  한 턴에 한 장까지 쓸 수 있고, 카드는 기물을 움직이지 않습니다. 소환한 기물은 그 턴에 움직일 수 없습니다.
+
+조작: 기물을 클릭한 뒤 도착 칸을 클릭합니다. `Esc`로 선택이나 카드 사용을 취소합니다. 진행 중인 대국은 자동 저장되어
+**이어하기**로 계속할 수 있습니다.
+
+## 개발
 
 ```bash
 npm install
@@ -34,33 +38,20 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run balance    # headless balance simulation (see below)
 ```
 
-### Balance simulation
+### 구조
 
-```bash
-npm run balance -- --seeds 40 --policies pawn,bishop,board,any --acts 3 --out docs/BALANCE.md
-```
+- `src/engine/game` — 증강을 이해하는 체스 엔진: 무르기를 지원하는 착수 처리, 행마 생성, 공격 판정, 해시, 기보 표기.
+- `src/engine/augments` — 증강 카드 정의(한국어 텍스트 포함)와 드래프트(등급 추첨, 제시, 규칙 합성).
+- `src/engine/ai` — 평가 함수, 알파-베타 탐색, 난이도별 착수와 카드 사용 판단.
+- `src/engine/match` — 한 판 전체를 액션 목록으로 재현하는 리듀서(저장, 무르기, 테스트가 모두 같은 경로 사용).
+- `src/engine/chess` — 정통 체스 기준 구현(퍼프트 검증과 교차 검증용).
+- `src/ai` — AI Web Worker와 클라이언트.
+- `src/state`, `src/components`, `src/screens` — React UI (Zustand 스토어).
+- `tests` — Vitest: 엔진 퍼프트와 교차 검증, 모든 증강 효과, AI 전술 테스트, AI 대 AI 대국과 재현성.
 
-A bot plays whole seeded runs through the same reducer as the UI, with a pick policy per archetype (`pawn`,
-`bishop`, `board` = mutations and debuffs only, `any` = best rarity). The report lists run win rates, where runs
-end, loss rates per encounter template and act (with the reason: turn limit, King captured…), boss results and the
-most taken upgrades. Every row replays exactly from its seed. Tuning lives in data: `src/data/acts.ts`,
-`src/data/economy.ts`, `src/data/profiles.ts`, the encounter templates in `src/data/encounters` and the bosses in
-`src/data/bosses`.
+## 배포
 
-### Layout
-
-- `src/engine` — rules: chess core, move generation layers, effect primitives and the event-driven resolver,
-  encounters (setup, flow, objectives, generator and validator), enemy planning, runs, saves, simulation.
-- `src/data` — content and tuning: upgrades (C1–C8), squares, affixes, events, recruits, templates, bosses.
-- `src/state` — Zustand stores (session with animation frames and effects, run, settings).
-- `src/components`, `src/screens` — React UI. `tests` — Vitest suites (perft, every primitive and upgrade,
-  interactions, validator, runs, bosses, balance, effects).
-
-## Deployment
-
-`.github/workflows/ci.yml` runs install → lint → typecheck → test → build on every push, and deploys `dist/` to
-GitHub Pages on pushes to `main`. Enable Pages once in **Settings → Pages → Source: GitHub Actions**.
-The Vite `base` is derived from the repository name in CI (`VITE_BASE`), defaulting to `/chess/`.
+`.github/workflows/ci.yml`이 푸시마다 install → lint → typecheck → test → build를 실행하고, `main` 브랜치는 GitHub
+Pages에 배포합니다. Pages는 **Settings → Pages → Source: GitHub Actions**에서 한 번 켜 두면 됩니다.

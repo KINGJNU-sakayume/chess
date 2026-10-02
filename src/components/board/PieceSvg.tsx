@@ -1,10 +1,13 @@
-import type { PieceType, Side } from '../../engine/core/pieces';
+import type { PieceType } from '../../engine/core/pieces';
 import { PALETTES, type PiecePalette } from './palettes';
 
 /**
- * Hand-drawn piece silhouettes (100×100 viewBox). Pieces stay orthodox and
- * recognizable (F4); build identity is layered on top by the board.
+ * Hand-drawn piece silhouettes (100×100 viewBox). The two fairy pieces are
+ * drawn as their base piece with a knight emblem: the Archbishop moves as a
+ * Bishop and a Knight, the Chancellor as a Rook and a Knight.
  */
+export type UiPieceType = PieceType | 'archbishop' | 'chancellor';
+export type PieceSide = 'white' | 'black';
 const BASE = 'M21 84 Q21 80 25 80 H75 Q79 80 79 84 V92 H21 Z';
 
 const BODY: Record<PieceType, string> = {
@@ -52,34 +55,55 @@ const QUEEN_BALLS: [number, number][] = [
   [80, 23],
 ];
 
+/** A small gold medallion with a knight head: "also moves like a Knight". */
+export function KnightEmblem({ cx = 74, cy = 70, r = 17 }: { cx?: number; cy?: number; r?: number }) {
+  const scale = (r * 2 * 0.8) / 100;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={r} fill="#e8c46a" stroke="#5a4313" strokeWidth={2.4} />
+      <path
+        d={BODY.knight}
+        transform={`translate(${cx - 50 * scale} ${cy - 47 * scale}) scale(${scale})`}
+        fill="#2a2018"
+        stroke="none"
+      />
+    </g>
+  );
+}
+
+/** The piece's shapes in a 100×100 box, for embedding inside another SVG. */
+export function PieceGlyph({ type, side, palette }: { type: UiPieceType; side: PieceSide; palette?: PiecePalette }) {
+  const p = palette ?? PALETTES[side];
+  const base: PieceType = type === 'archbishop' ? 'bishop' : type === 'chancellor' ? 'rook' : type;
+  return (
+    <>
+      <g fill={p.fill} stroke={p.stroke} strokeWidth={3.2} strokeLinejoin="round" strokeLinecap="round">
+        <path d={BASE} />
+        <path d={BODY[base]} fillRule="nonzero" />
+        {base === 'queen' && QUEEN_BALLS.map(([cx, cy]) => <circle key={cx} cx={cx} cy={cy} r={4.2} />)}
+      </g>
+      {DETAIL[base] ? (
+        <path d={DETAIL[base]} fill={base === 'knight' ? p.detail : 'none'} stroke={p.detail} strokeWidth={2.6} strokeLinecap="round" />
+      ) : null}
+      {type === 'archbishop' || type === 'chancellor' ? <KnightEmblem /> : null}
+    </>
+  );
+}
+
 export function PieceSvg({
   type,
   side,
   className,
   palette,
 }: {
-  type: PieceType;
-  side: Side;
+  type: UiPieceType;
+  side: PieceSide;
   className?: string;
   palette?: PiecePalette;
 }) {
-  const p = palette ?? PALETTES[side];
   return (
     <svg viewBox="0 0 100 100" className={className} aria-hidden="true">
-      <g fill={p.fill} stroke={p.stroke} strokeWidth={3.2} strokeLinejoin="round" strokeLinecap="round">
-        <path d={BASE} />
-        <path d={BODY[type]} fillRule="nonzero" />
-        {type === 'queen' && QUEEN_BALLS.map(([cx, cy]) => <circle key={cx} cx={cx} cy={cy} r={4.2} />)}
-      </g>
-      {DETAIL[type] ? (
-        <path
-          d={DETAIL[type]}
-          fill={type === 'knight' ? p.detail : 'none'}
-          stroke={p.detail}
-          strokeWidth={2.6}
-          strokeLinecap="round"
-        />
-      ) : null}
+      <PieceGlyph type={type} side={side} palette={palette} />
     </svg>
   );
 }

@@ -2,7 +2,7 @@
   "name": "break-chess",
   "private": true,
   "version": "0.1.0",
-  "description": "Break Chess \u2014 a deterministic chess roguelike where you build your own broken variant of chess.",
+  "description": "브레이크 체스 — 정통 체스에 증강 드래프트를 더한 브라우저 체스 게임.",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -15,12 +15,12 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "balance": "node scripts/balance.mjs",
     "ci": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",
-    "@fontsource/inter": "^5.3.0",
+    "@fontsource/noto-sans-kr": "^5.3.0",
+    "@fontsource/noto-serif-kr": "^5.3.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"

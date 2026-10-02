@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createStreams, deriveStream, Rng, withStream } from '../src/engine/rng';
+import { deriveStream, Rng } from '../src/engine/rng';
 
 describe('seeded PRNG', () => {
   it('is deterministic for the same seed', () => {
@@ -11,21 +11,8 @@ describe('seeded PRNG', () => {
   });
 
   it('differs across seeds and labels', () => {
-    expect(deriveStream('s', 'map')).not.toEqual(deriveStream('s', 'offers'));
+    expect(deriveStream('s', 'tier:1')).not.toEqual(deriveStream('s', 'offer:1:0:0'));
     expect(deriveStream('s1', 'map')).not.toEqual(deriveStream('s2', 'map'));
-  });
-
-  it('streams are independent: consuming one never shifts another', () => {
-    const base = createStreams('seed-123');
-    const [, afterMap] = withStream(base, 'map', (r) => {
-      for (let i = 0; i < 100; i++) r.float();
-    });
-    expect(afterMap.offers).toEqual(base.offers);
-    expect(afterMap.enemyAI).toEqual(base.enemyAI);
-    expect(afterMap.map).not.toEqual(base.map);
-    const [x1] = withStream(base, 'offers', (r) => r.int(1000));
-    const [x2] = withStream(afterMap, 'offers', (r) => r.int(1000));
-    expect(x1).toBe(x2);
   });
 
   it('restores from saved state', () => {
