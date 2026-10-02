@@ -138,6 +138,8 @@ export interface SimOptions {
   maxSteps?: number;
   /** Observe every finished encounter (balance analysis). */
   onEncounter?: (encounter: EncounterState, run: RunState) => void;
+  /** Stop as soon as the run reaches a state of interest (e.g. a late-game encounter to inspect). */
+  stopWhen?: (run: RunState) => boolean;
 }
 
 export function simulateRun(seed: string, policy: PickPolicy, opts: SimOptions = {}): SimResult {
@@ -147,6 +149,7 @@ export function simulateRun(seed: string, policy: PickPolicy, opts: SimOptions =
   const botRng = new Rng([0x9e3779b9, seed.length, 7, 11]);
   let steps = 0;
   while (!run.result && run.act <= maxActs && steps < maxSteps) {
+    if (opts.stopWhen?.(run)) break;
     steps++;
     switch (runView(run)) {
       case 'map': {

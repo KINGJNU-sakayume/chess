@@ -17,7 +17,10 @@ export interface BoardPieceView {
   /** Optional underlay (glow, base rings) rendered beneath the piece. */
   underlay?: ReactNode;
   dim?: boolean;
+  /** Classes for the piece body (e.g. an idle animation); positioning stays separate. */
   className?: string;
+  /** Delay offset (ms) for the body animation, so a crowd does not move in lockstep. */
+  phaseMs?: number;
 }
 
 export type MoveDot = 'move' | 'capture' | 'pierce' | 'extra' | 'special' | 'deploy' | 'place';
@@ -51,6 +54,10 @@ interface BoardProps {
   showCoords?: boolean;
   /** Move animation duration in ms (0 = instant). */
   moveMs?: number;
+  /** Effect layer drawn above pieces and arrows (F5). */
+  fx?: ReactNode;
+  /** Glow around the board (visual build identity, F4). */
+  aura?: string | null;
   className?: string;
 }
 
@@ -95,6 +102,8 @@ function BoardImpl({
   onSquareHover,
   showCoords = true,
   moveMs = 180,
+  fx,
+  aura = null,
   className = '',
 }: BoardProps) {
   const squareNodes = useMemo(() => {
@@ -143,6 +152,7 @@ function BoardImpl({
   return (
     <div
       className={`relative aspect-square w-full select-none overflow-hidden rounded-[6px] shadow-[0_18px_50px_rgba(0,0,0,0.55)] ring-1 ring-black/40 ${className}`}
+      style={aura ? { boxShadow: `0 18px 50px rgba(0,0,0,0.55), 0 0 0 2px rgba(${aura}, 0.55), 0 0 36px rgba(${aura}, 0.35)` } : undefined}
       onMouseLeave={() => onSquareHover?.(null)}
     >
       {squareNodes}
@@ -150,7 +160,7 @@ function BoardImpl({
       {pieces.map((p) => (
         <div
           key={p.id}
-          className={`pointer-events-none absolute left-0 top-0 h-[12.5%] w-[12.5%] ${p.className ?? ''}`}
+          className="pointer-events-none absolute left-0 top-0 h-[12.5%] w-[12.5%]"
           style={{
             transform: `translate(${col(p.sq) * 100}%, ${row(p.sq) * 100}%)`,
             transition: moveMs > 0 ? `transform ${moveMs}ms cubic-bezier(.3,.7,.3,1)` : 'none',
@@ -158,13 +168,23 @@ function BoardImpl({
             zIndex: 10,
           }}
         >
-          {p.underlay}
-          <PieceSvg
-            type={p.type}
-            side={p.side}
-            className="absolute inset-[7%] h-[86%] w-[86%] drop-shadow-[0_3px_2px_rgba(0,0,0,0.45)]"
-          />
-          {p.overlay}
+          {/* Pieces drop in when they first appear (deployment, reinforcements) and pop when they
+              transform (promotion): keyed by type, the body remounts and replays. Skipped at Instant. */}
+          <div
+            key={p.type}
+            className={`absolute inset-0 ${moveMs > 0 ? 'piece-enter' : ''}`}
+            style={moveMs > 0 ? { animationDuration: `${Math.round(moveMs * 1.8)}ms`, animationDelay: `${Math.round(((fileOf(p.sq) + rankOf(p.sq)) * 18 * moveMs) / 220)}ms` } : undefined}
+          >
+            <div className={`absolute inset-0 ${p.className ?? ''}`} style={p.phaseMs ? { animationDelay: `-${p.phaseMs}ms` } : undefined}>
+              {p.underlay}
+              <PieceSvg
+                type={p.type}
+                side={p.side}
+                className="absolute inset-[7%] h-[86%] w-[86%] drop-shadow-[0_3px_2px_rgba(0,0,0,0.45)]"
+              />
+              {p.overlay}
+            </div>
+          </div>
         </div>
       ))}
       {/* Move dots and top decorations */}
@@ -234,6 +254,7 @@ function BoardImpl({
           })}
         </svg>
       ) : null}
+      {fx}
       {/* Click targets */}
       <div className="absolute inset-0" style={{ zIndex: 30 }}>
         {Array.from({ length: 64 }, (_, sq) => (

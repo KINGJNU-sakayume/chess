@@ -135,7 +135,7 @@ Development Rule ("does this increase the player's ability to create their own b
 - **Replays.** `RunState.actions` records every run action; replaying them from the seed reproduces the identical
   state hash (tested).
 - **The Fortress King.** Act I boss: King in a corner with a two-pawn shield, Rook, Knight, Bishop and a broken
-  rampart; T = 11. Its Sanctuaries (2 every 3 turns, telegraphed a turn ahead) grant a Ward to an enemy piece
+  rampart; T = 12 (11 before M6 tuning). Its Sanctuaries (2 every 3 turns, telegraphed a turn ahead) grant a Ward to an enemy piece
   standing on them at the start of your turn, and **crumble once that Ward blocks a capture**. Without the crumble,
   a King on a Sanctuary is uncapturable with one action per turn — a boss that disables builds instead of pressuring
   them.
@@ -175,10 +175,10 @@ Development Rule ("does this increase the player's ability to create their own b
     in enemy phase 2, so it is on the board for Player Turn 3 (delayed further if its square is blocked). Slow
     Command applies to bosses too. Heavy Queen also limits promoted and boss Queens.
 - **New encounter templates.** *Pawn Race* (PROMOTION_RACE) needs one promotion in every act; the countdown
-  equals the turn limit (8/8/9); 3/4/4–5 enemy Pawns start on ranks 6–7, screened by 2/3/4 pieces in Acts I/II/III. *Breakout*
-  (ESCAPE) designates the escapee by preference Knight > Bishop > Rook > Queen > Pawn; exits sit on rank 8
-  (three, two in Act III). The validator's reachability check for ESCAPE only measures the escapee, with real
-  move geometry (a Knight next to an exit is not "one move away").
+  equals the turn limit (8/8/9); 3/4/4–5 enemy Pawns start on ranks 6–7, screened by 2/3/4 pieces in
+  Acts I/II/III. *Breakout* (ESCAPE) designates the escapee by preference Knight > Bishop > Rook > Queen > Pawn;
+  three exits sit on rank 8 (M5 used two in Act III; see M6). The validator's reachability check for ESCAPE only
+  measures the escapee, with real move geometry (a Knight next to an exit is not "one move away").
 - **Chained intents.** A boss rule may give one piece several intents per phase. They are planned one after
   another on the hypothetical board (so step 2 starts where step 1 ends) and previewed the same way. **A piece
   whose step fails — fizzles, or is repelled by a Ward — abandons the rest of its route** ("route broken"),
@@ -186,10 +186,12 @@ Development Rule ("does this increase the player's ability to create their own b
   the preview honest.
 - **The Tyrant Queen** (Act II): the Queen's court hems her in (only the d-file is open, its Pawn already on d5),
   so her opening routes are short and readable. Her route grows 1 → 2 → 3 steps over the first three turns,
-  then stays at 3; the court shares one intent. She starts with **2 Wards and loses one every time her route
-  breaks** ("she stumbles"). Tuning history: with no Ward she fell to the first block (bot, unupgraded army:
-  12/12 by turn 4); with a permanent Ward the bot never landed the second hit (0/12); with the stumble rule
-  and 2 Wards the unupgraded bot wins 10/12, between turns 5 and 12.
+  then stays at 3; the court shares one intent. She starts with **3 Wards and loses one every time her route
+  breaks** ("she stumbles"). While warded she plays boldly (a hit only costs a Ward); bare, she is as careful
+  as a King. Tuning history: with no Ward she fell to the first block (bot, unupgraded army: 12/12 by turn 4);
+  with a permanent Ward the bot never landed the second hit (0/12); with the stumble rule and 2 Wards the
+  unupgraded bot won 10/12; run simulations (M6) then showed upgraded armies beating her almost always, so she
+  got a third Ward.
 - **The Pawn Emperor** (Act III): a full court behind an unbroken wall of 8 Pawns (+2 advanced), the Emperor
   (King) with 1 Ward, 2 enemy actions, T = 12. Every enemy phase it summons the Pawns telegraphed the phase before
   (1–2 on free rank-7 squares, spilling onto rank 6 when rank 7 is full); a countdown from 8 turns every enemy
@@ -203,3 +205,55 @@ Development Rule ("does this increase the player's ability to create their own b
   and can the King step away?), and in races backs a single runner instead of spreading Pawn moves.
 - **Run statistics** add fizzles, enemy immobilizations and Ward blocks; save schema 2 migrates older saves by
   zero-filling them.
+
+## Polish and balance (M6)
+
+- **Balance instrument.** `npm run balance` (engine module `run/balance.ts`, loaded through Vite's SSR loader so no
+  extra tooling is needed) plays seeded runs per bot policy and reports run wins, where runs end, loss rate and
+  loss reason per encounter template × act (elites starred), boss results and the most taken upgrades. Latest
+  numbers: [`docs/BALANCE.md`](./docs/BALANCE.md). The four policies are deliberately narrow (Pawn-only,
+  Bishop-only, mutations/debuffs-only, "best rarity"), so they bracket real players rather than model them.
+- **What the simulation changed** (40 seeds × 4 policies; full-run wins went from 60/5/10/38% to
+  78/40/38/55% for pawn/bishop/board/any):
+  - Almost every loss was "turn limit reached", not a lost King: Acts I–II turn limits are now 7–8 (were 6–7) and
+    the Fortress King allows 12 turns (was 11). Elites get `ACTS[].eliteTurnBonus` (+1) on timed objectives —
+    they hit harder, so they also allow a little longer — but never on hold-out objectives.
+  - *Breakout* keeps three exits in every act, gets +1 turn from Act II, and its runner carries 1 Ward from Act II
+    (hunters gang up on it).
+  - *Last Stand* never lost an encounter (0% over hundreds of plays): the enemy could not reach a King inside a
+    full formation. It is now an **ambush**: telegraphed ambushers drop onto ranks 3–4 near the player's King
+    every phase (occupying a drop square delays that arrival), T = 6/7/7. **King hunters net the King**: once an
+    intent strikes the King's square, the following intents aim at the squares it could step to (a second strike
+    on a boxed-in King is decisive). The validator now rejects hold-out encounters that an idle player survives.
+    Bots still survive most ambushes — their King keeps finding a square — but the formation gets torn apart,
+    and doing nothing loses.
+  - The Tyrant Queen got a third Ward (see M5).
+  - Bot fixes the numbers exposed (validator playouts and simulation only, never the enemy): an urgency factor
+    makes the objective dominate as the clock runs down (a Pawn build kept promoting Queens instead of moving its
+    Breakout runner), and build affinity counts less in races and escapes, where one specific piece wins.
+- **Known gaps** (see the report): Bishop-only runs still lose about half their Act II Fortresses (walls close
+  diagonals — terrain is the intended counter to a build, B5), mutation/debuff-only runs struggle against the
+  Tyrant Queen and the Pawn Emperor (no extra actions to answer several threats a turn), and Act III elites lose
+  about half the time on small samples. None of these is a hard wall for a mixed build (`any`: 55% full-run wins).
+- **Tuning via data.** Act tuning (`src/data/acts.ts`), the economy — prices, gold per unused turn, multipliers,
+  Crowns (`src/data/economy.ts`), enemy behaviour-profile weights and the net bonus (`src/data/profiles.ts`),
+  templates and bosses. The engine reads these; no balance number lives in engine code.
+- **Juice (F5).** Effects are *derived from the difference between two displayed frames* — the new combat-log
+  entries plus piece changes (`src/state/fx.ts`) — so an animation can never disagree with the log. Long Bishop
+  moves draw a progressive golden diagonal trail with sparks (other long slides a fainter one); captures burst;
+  every trigger pulses its squares and pops a short label, chained triggers one after another (110 ms apart at 1×)
+  in resolution order; Ward blocks and fizzles get their own pulse; promotion flashes the board and the piece
+  pops as it transforms (mass promotions flash red); pieces drop onto the board when they appear (deployment,
+  reinforcements, spawns) in a quick wave; extra actions get a spinning gold ring, a "+N actions" label and the
+  new token pops in. Popups on one square stack. Everything scales with the speed setting (2× halves durations),
+  is skipped with the rest of the playback (Space / Skip) and is never mounted at Instant.
+- **No input lag.** The first frame of an action is shown immediately; only the rest of the playback is paced.
+- **Visual build identity (F4).** Pieces are never replaced. On top of the aura and base rings (which grow with
+  the upgrades touching the piece type): small **sigils** in the corner for each kind of power those upgrades grant
+  (new movement, pierce, extra actions, Wards, immobilize, promotion rules, reposition; at most three), a **board
+  aura** in the colour of the dominant archetype (3+ stacks; violet for 4+ board mutations), and a **Pawn swarm**
+  of 10+ Pawns marches in place, out of step. Bishop runs leave light trails.
+- **Piece inspection (F2).** A compact view (rarity-coloured chips, inactive conditions dimmed, counters such as
+  Zeal inline) and a detailed view (every modifier with its rules text, the square effects under the piece and
+  their texts), toggled by *Details* or `I` and remembered. The header counts modifiers (and how many are
+  active) and lists the piece's kinds of power.

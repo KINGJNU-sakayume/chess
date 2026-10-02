@@ -5,13 +5,17 @@ import type { EncounterState, Piece } from './core/state';
 import { describeExpiry } from './core/time';
 import { compileRules } from './rules/compile';
 import { evalNum, stackedName } from './rules/num';
+import type { Rarity } from './rules/types';
+import { SQUARE_INFO } from '../data/squares';
 
 /** Piece inspection (F2): everything that changes how this piece plays. */
 export interface PieceInspection {
   title: string;
   side: Side;
   base: string;
-  modifiers: { id: string; name: string; detail: string; note?: string; active: boolean }[];
+  modifiers: { id: string; name: string; detail: string; note?: string; active: boolean; rarity?: Rarity }[];
+  /** Square effects under the piece (board mutations, Sanctuaries, Consecrated squares…). */
+  squares: { name: string; text: string; mine: boolean }[];
   statuses: string[];
   tags: string[];
 }
@@ -57,7 +61,7 @@ export function inspectPieceLike(state: EncounterState, p: Piece): PieceInspecti
         });
       }
       if (def.id === 'pawn_veteran') note = `${p.captures} capture${p.captures === 1 ? '' : 's'} this encounter`;
-      modifiers.push({ id, name: stackedName(def.name, owned.stacks), detail: def.describe(owned.stacks), note, active });
+      modifiers.push({ id, name: stackedName(def.name, owned.stacks), detail: def.describe(owned.stacks), note, active, rarity: def.rarity });
     }
   } else {
     if (p.type === 'queen' && rules.heavyQueenRange !== null) {
@@ -77,11 +81,15 @@ export function inspectPieceLike(state: EncounterState, p: Piece): PieceInspecti
   const tags = p.tags.map((t) =>
     t === 'target' ? 'Marked target' : t === 'escapee' ? 'Must escape' : t === 'protectee' ? 'Must survive' : t === 'boss' ? 'Boss' : 'Locked start',
   );
+  const squares = state.marks
+    .filter((m) => m.sq === p.sq && !m.suppressed)
+    .map((m) => ({ name: SQUARE_INFO[m.type].name, text: SQUARE_INFO[m.type].text, mine: m.side === p.side }));
   return {
     title: `${PIECE_NAME[p.type].toUpperCase()} (${sqName(p.sq)})`,
     side: p.side,
     base: p.promotedFrom ? `${BASE_TEXT[p.type]} (promoted Pawn)` : BASE_TEXT[p.type],
     modifiers,
+    squares,
     statuses,
     tags,
   };

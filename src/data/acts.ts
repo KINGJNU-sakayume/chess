@@ -13,6 +13,8 @@ export interface ActTuning {
   /** Elite escalation: Act I rolls "+1 action or 1 affix"; later acts add affixes. */
   eliteAffixes: number;
   eliteExtraActionChance: number;
+  /** Extra turns elites get on timed objectives (they hit harder, so they also allow a little longer). */
+  eliteTurnBonus: number;
   /** Node rows before the boss row. */
   rows: number;
   boss: string;
@@ -23,12 +25,13 @@ export const ACTS: ActTuning[] = [
     act: 1,
     feel: 'near-normal chess',
     enemyActions: [1, 1],
-    turnLimit: [6, 7],
+    turnLimit: [7, 8],
     terrainChance: 0.15,
     rarityWeights: { common: 70, uncommon: 25, rare: 5, legendary: 0 },
     goldBase: 10,
     eliteAffixes: 1,
     eliteExtraActionChance: 0.5,
+    eliteTurnBonus: 1,
     rows: 9,
     boss: 'fortress_king',
   },
@@ -36,12 +39,13 @@ export const ACTS: ActTuning[] = [
     act: 2,
     feel: 'clear specialization',
     enemyActions: [1, 2],
-    turnLimit: [6, 7],
+    turnLimit: [7, 8],
     terrainChance: 0.45,
     rarityWeights: { common: 55, uncommon: 32, rare: 11, legendary: 2 },
     goldBase: 15,
     eliteAffixes: 1,
     eliteExtraActionChance: 0,
+    eliteTurnBonus: 1,
     rows: 9,
     boss: 'tyrant_queen',
   },
@@ -55,6 +59,7 @@ export const ACTS: ActTuning[] = [
     goldBase: 20,
     eliteAffixes: 2,
     eliteExtraActionChance: 0,
+    eliteTurnBonus: 1,
     rows: 9,
     boss: 'pawn_emperor',
   },

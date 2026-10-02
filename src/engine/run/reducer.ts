@@ -11,7 +11,7 @@ import { CURSE_POOL } from '../../data/affixes';
 import { EVENTS, type EventOutcome } from '../../data/events';
 import { RECRUITS } from '../../data/recruits';
 import { applyPlacement, deploymentTop, grantUpgrade, validateFormation, zoneOf } from './acquire';
-import { CROWN_PRICE, encounterGold, MAX_CROWNS, PIECE_PRICE, REMOVE_CURSE_PRICE, REROLL_PRICE, UPGRADE_PRICE } from './economy';
+import { CROWN_PRICE, encounterGold, MAX_CROWNS, PIECE_PRICE, REMOVE_CURSE_PRICE, REROLL_PRICE, upgradePrice } from './economy';
 import { generateActMap, nodeById, reachableNodes } from './map';
 import { generateOffers, type OfferContext, type OfferPool } from './offers';
 import { standardRoster } from './roster';
@@ -148,10 +148,9 @@ function shopItems(run: RunState): [ShopItem[], RunState] {
   const [ups, r1] = offers(run, { count: 3 });
   const [mut, r2] = offers(r1, { pool: 'mutation', count: 1 });
   const [recruits, r3] = recruitOffers(r2);
-  const scale = 1 + 0.1 * (run.act - 1);
   const items: ShopItem[] = [...ups, ...mut].map((id) => {
     const def = upgradeDef(id);
-    return { kind: 'upgrade', id, label: def.name, price: Math.round(UPGRADE_PRICE[def.rarity] * scale) };
+    return { kind: 'upgrade', id, label: def.name, price: upgradePrice(def.rarity, run.act) };
   });
   const piece = recruits[0];
   if (piece) items.push({ kind: 'piece', id: piece.id, label: piece.label, price: piece.pieces.reduce((n, t) => n + PIECE_PRICE[t], 0), pieces: piece.pieces });

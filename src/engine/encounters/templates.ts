@@ -27,6 +27,8 @@ export interface TemplateContext {
   occupied: ReadonlySet<Sq>;
   /** Highest rank index the player may deploy to (1 = ranks 1–2). */
   deploymentTop: number;
+  /** Where the player's King starts (null if it is not on the board). */
+  playerKing: Sq | null;
 }
 
 export interface TemplateOutput {
@@ -38,8 +40,8 @@ export interface TemplateOutput {
   enemies: EnemyPieceSpec[];
   terrain: { sq: Sq; type: Terrain }[];
   waves: ReinforcementWave[];
-  /** Player roster tags (e.g. ESCAPE designates one piece). */
-  designate?: { prefer: PieceType[]; tag: PieceTag };
+  /** Player roster tags (e.g. ESCAPE designates one piece, optionally with Wards). */
+  designate?: { prefer: PieceType[]; tag: PieceTag; wards?: number };
   marks?: Omit<SquareMark, 'id'>[];
   bossId?: string;
 }

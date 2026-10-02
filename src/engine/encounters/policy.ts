@@ -122,6 +122,8 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
   if (m.rubble) s += 2;
   if (m.promotion && !blocked) s += m.promotion === 'queen' ? 70 : 30;
   const runnerBefore = obj === 'PROMOTION_RACE' ? runnerValue(h, ctx.rules.promotionRankPlayer) : 0;
+  // The clock (races): with little slack between the turns left and the best runner's distance, only the race matters.
+  const raceUrgency = obj === 'PROMOTION_RACE' ? urgencyOf((state.config.turnLimit ?? 12) - state.turn + 1 - runnerSteps(h, ctx.rules.promotionRankPlayer)) : 1;
 
   const u = makeHypo(h, m, { wards: true });
   const hctx = retarget(ctx, h);
@@ -183,14 +185,16 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
       const e = inf.escapee;
       if (e && inf.exits.length) {
         // Real move distance for the escapee's piece type (a Knight next to an exit is not "close").
-        const dist = (sq: Sq) => Math.min(...inf.exits.map((x) => openBoardDistance(e.type, sq, x)));
-        if (m.pieceId === e.id) s += (Math.min(9, dist(m.from)) - Math.min(9, dist(dest))) * 12;
+        const dist = (sq: Sq) => Math.min(9, ...inf.exits.map((x) => openBoardDistance(e.type, sq, x)));
+        // The clock: with little slack left, the runner's progress outweighs everything else.
+        const turnsLeft = (state.config.turnLimit ?? 12) - state.turn + 1;
+        if (m.pieceId === e.id) s += (dist(m.from) - dist(dest)) * 12 * urgencyOf(turnsLeft - dist(e.sq));
       }
       break;
     }
     case 'PROMOTION_RACE':
       // Back one runner: progress of the best-placed Pawn (or clearing its file) is what wins races.
-      s += (runnerValue(h, ctx.rules.promotionRankPlayer) - runnerBefore) * 3;
+      s += (runnerValue(h, ctx.rules.promotionRankPlayer) - runnerBefore) * 3 * raceUrgency;
       if (mover.type === 'pawn') s += (rankOf(dest) - rankOf(m.from)) * 2;
       // Advanced enemy Pawns are the real threat: capturing them is worth more the closer they are.
       if (target?.type === 'pawn' && target.side === 'enemy') s += (7 - rankOf(target.sq)) * 12;
@@ -215,8 +219,8 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
  * halves the value; anything standing on the Pawn's file counts as three
  * extra steps (it must be captured, dodged or waited out).
  */
-function runnerValue(h: EncounterState, promoRank: number): number {
-  let best = 0;
+function runnerSteps(h: EncounterState, promoRank: number): number {
+  let best = 99;
   for (const id in h.pieces) {
     const p = h.pieces[id];
     if (p.side !== 'player' || p.type !== 'pawn') continue;
@@ -225,10 +229,15 @@ function runnerValue(h: EncounterState, promoRank: number): number {
       const sq = sqOf(fileOf(p.sq), r);
       if (h.board[sq] || h.terrain[sq]) steps += 3;
     }
-    best = Math.max(best, 2 ** (6 - Math.min(6, steps)));
+    best = Math.min(best, steps);
   }
   return best;
 }
+
+const runnerValue = (h: EncounterState, promoRank: number): number => 2 ** (6 - Math.min(6, runnerSteps(h, promoRank)));
+
+/** Weight of objective progress given the turns to spare (slack ≤ 0: the clock decides everything). */
+const urgencyOf = (slack: number): number => (slack <= 0 ? 10 : slack === 1 ? 6 : slack === 2 ? 3 : 1.5);
 
 /** Base-pattern attack test (ignores upgrades): would a `type` on `from` attack `to` on this board? */
 function attacksGeom(state: EncounterState, type: PieceType, from: Sq, to: Sq, vacated: Sq): boolean {
@@ -377,12 +386,14 @@ export function chooseAction(state: EncounterState, opts: PolicyOptions): { acti
       return n;
     };
     const mobilityBefore = favoured.length ? mobility(state, ctx) : 0;
-    for (const c of scored) c.score += Math.min(6, affinity[c.move.pieceType] ?? 0) * 1.6;
+    // Races and escapes are won by one specific piece: the build's favourite pieces matter less there.
+    const lean = state.config.objective.type === 'PROMOTION_RACE' || state.config.objective.type === 'ESCAPE' ? 0.3 : 1;
+    for (const c of scored) c.score += Math.min(6, affinity[c.move.pieceType] ?? 0) * 1.6 * lean;
     scored.sort((a, b) => b.score - a.score);
     for (const c of scored.slice(0, 8)) {
       if (favoured.length) {
         const u = makeHypo(h, c.move, { wards: true });
-        c.score += 0.8 * (mobility(h, retarget(ctx, h)) - mobilityBefore);
+        c.score += 0.8 * lean * (mobility(h, retarget(ctx, h)) - mobilityBefore);
         unmakeHypo(h, u);
       }
       if (c.score >= 1e5) continue;

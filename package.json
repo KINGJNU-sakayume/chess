@@ -2,7 +2,7 @@
   "name": "break-chess",
   "private": true,
   "version": "0.1.0",
-  "description": "Break Chess — a deterministic chess roguelike where you build your own broken variant of chess.",
+  "description": "Break Chess \u2014 a deterministic chess roguelike where you build your own broken variant of chess.",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "balance": "node scripts/balance.mjs",
     "ci": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

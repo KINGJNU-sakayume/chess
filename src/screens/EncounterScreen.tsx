@@ -8,6 +8,8 @@ import { previewIntents } from '../engine/enemy/preview';
 import { inspectPiece } from '../engine/inspect';
 import { affordableMoves, attackCounts, createGenContext, type Move } from '../engine/moves/generate';
 import { BoardView } from '../components/encounter/BoardView';
+import { FxLayer } from '../components/encounter/Fx';
+import { pieceSigils, SIGIL_LABEL } from '../components/encounter/buildIdentity';
 import { ActionTokens, ChoiceDialog, CombatLog, Inspector, IntentList, ObjectiveCard, ReserveTray, type VariantChoice } from '../components/encounter/Panels';
 import { frameMs, moveMs, useSettings } from '../state/settingsStore';
 import { useSession } from '../state/sessionStore';
@@ -24,7 +26,7 @@ interface Props {
 }
 
 export function EncounterScreen({ header, sidebarExtra, onContinue, continueLabel = 'Continue', onExit }: Props) {
-  const { state, display, frames, history, act, endTurn, undo, advanceFrame, skipFrames, error } = useSession();
+  const { state, display, frames, fx, history, act, endTurn, undo, advanceFrame, skipFrames, pruneFx, error } = useSession();
   const settings = useSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reserveId, setReserveId] = useState<string | null>(null);
@@ -46,6 +48,13 @@ export function EncounterScreen({ header, sidebarExtra, onContinue, continueLabe
     const t = setTimeout(advanceFrame, ms);
     return () => clearTimeout(t);
   }, [frames, settings.animSpeed, advanceFrame, skipFrames]);
+
+  // Finished effects leave the DOM shortly after their animations end.
+  useEffect(() => {
+    if (!fx.length) return;
+    const t = setTimeout(pruneFx, 2100);
+    return () => clearTimeout(t);
+  }, [fx, pruneFx]);
 
   const interactive = !!state && !busy && state.phase === 'player' && !state.outcome;
 
@@ -117,6 +126,7 @@ export function EncounterScreen({ header, sidebarExtra, onContinue, continueLabe
       if (e.key === 'Escape') clearSelection();
       if ((e.key === 'z' || e.key === 'Backspace') && history.length && !busy) undo();
       if (e.key === 'Enter' && interactive) endTurn();
+      if (e.key === 'i' || e.key === 'I') settings.set({ inspectorExpanded: !settings.inspectorExpanded });
       if (e.key === ' ' && busy) {
         e.preventDefault();
         skipFrames();
@@ -124,7 +134,7 @@ export function EncounterScreen({ header, sidebarExtra, onContinue, continueLabe
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clearSelection, history.length, busy, undo, interactive, endTurn, skipFrames]);
+  }, [clearSelection, history.length, busy, undo, interactive, endTurn, skipFrames, settings]);
 
   if (!state || !shown) return null;
 
@@ -197,7 +207,12 @@ export function EncounterScreen({ header, sidebarExtra, onContinue, continueLabe
             </div>
             {error ? <div className="text-xs text-blood-300">{error}</div> : null}
           </div>
-          <Inspector info={inspection} expanded={settings.inspectorExpanded} onToggle={() => settings.set({ inspectorExpanded: !settings.inspectorExpanded })} />
+          <Inspector
+            info={inspection}
+            expanded={settings.inspectorExpanded}
+            onToggle={() => settings.set({ inspectorExpanded: !settings.inspectorExpanded })}
+            powers={inspectId && shown.pieces[inspectId]?.side === 'player' ? pieceSigils(shown, shown.pieces[inspectId].type).map((x) => SIGIL_LABEL[x] ?? x) : []}
+          />
           {sidebarExtra}
         </div>
 
@@ -217,6 +232,7 @@ export function EncounterScreen({ header, sidebarExtra, onContinue, continueLabe
               onSquareClick={onSquareClick}
               onSquareHover={setHoverSq}
               moveMs={moveMs(settings.animSpeed)}
+              fx={settings.animSpeed === 0 ? null : <FxLayer items={fx} scale={settings.animSpeed === 2 ? 0.5 : 1} />}
             />
             {busy ? (
               <button type="button" className="absolute bottom-2 right-2 z-40 rounded-md bg-black/60 px-2 py-1 text-xs text-ink-200" onClick={skipFrames}>

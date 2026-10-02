@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { EncounterState } from '../engine/core/state';
 import { applyPlayerAction, endTurn, noActionsLeft, type PlayerActionInput } from '../engine/encounters/flow';
+import { deriveFx, type FxEvent } from './fx';
 
 /**
  * The active encounter session: current state, the per-turn undo stack
@@ -30,12 +31,33 @@ export function visualFrames(prev: EncounterState, frames: EncounterState[]): En
 
 export type SessionAction = { type: 'act'; action: PlayerActionInput } | { type: 'endTurn' } | { type: 'undo' };
 
+/** A live visual effect (F5), keyed for React and stamped for pruning. */
+export interface LiveFx {
+  key: string;
+  event: FxEvent;
+  born: number;
+}
+
+/** Effects older than this are dropped (every effect is shorter at 1×). */
+const FX_LIFETIME_MS = 2000;
+let fxSeq = 0;
+
+function withFx(current: LiveFx[], prev: EncounterState | null, next: EncounterState): LiveFx[] {
+  const now = Date.now();
+  const alive = current.filter((f) => now - f.born < FX_LIFETIME_MS);
+  if (!prev) return alive;
+  const events = deriveFx(prev, next);
+  return events.length ? [...alive, ...events.map((event) => ({ key: `fx${fxSeq++}`, event, born: now }))] : alive;
+}
+
 interface SessionStore {
   state: EncounterState | null;
   history: EncounterState[];
   /** States waiting to be displayed (animation playback). */
   frames: EncounterState[];
   display: EncounterState | null;
+  /** Effects for the frames shown so far (empty when animations are skipped). */
+  fx: LiveFx[];
   error: string | null;
   callbacks: SessionCallbacks;
   start: (s: EncounterState, callbacks?: SessionCallbacks, history?: EncounterState[]) => void;
@@ -44,6 +66,8 @@ interface SessionStore {
   undo: () => void;
   advanceFrame: () => void;
   skipFrames: () => void;
+  /** Drop finished effects. */
+  pruneFx: () => void;
   clear: () => void;
 }
 
@@ -52,9 +76,10 @@ export const useSession = create<SessionStore>((set, get) => ({
   history: [],
   frames: [],
   display: null,
+  fx: [],
   error: null,
   callbacks: {},
-  start: (s, callbacks = {}, history: EncounterState[] = []) => set({ state: s, display: s, history, frames: [], error: null, callbacks }),
+  start: (s, callbacks = {}, history: EncounterState[] = []) => set({ state: s, display: s, history, frames: [], fx: [], error: null, callbacks }),
   act: (a, autoEnd = false) => {
     const { state, history, callbacks } = get();
     if (!state) return;
@@ -62,7 +87,9 @@ export const useSession = create<SessionStore>((set, get) => ({
       const res = applyPlayerAction(state, a, { frames: true });
       const frames = [...visualFrames(state, res.frames.slice(0, -1)), res.state];
       const nextHistory = [...history, state];
-      set({ state: res.state, history: nextHistory, frames, error: null });
+      // The first frame shows at once (no input lag); the rest play back at the chosen speed.
+      const { display, fx } = get();
+      set({ state: res.state, history: nextHistory, display: frames[0], frames: frames.slice(1), fx: withFx(fx, display, frames[0]), error: null });
       callbacks.onAction?.({ type: 'act', action: a }, res.state, nextHistory);
       if (autoEnd && !res.state.outcome && noActionsLeft(res.state)) get().endTurn();
     } catch (err) {
@@ -74,7 +101,8 @@ export const useSession = create<SessionStore>((set, get) => ({
     if (!state || state.phase !== 'player' || state.outcome) return;
     const res = endTurn(state, { frames: true });
     const frames = [...pending, ...visualFrames(pending[pending.length - 1] ?? state, res.frames), res.state];
-    set({ state: res.state, history: [], frames, error: null });
+    const { display, fx } = get();
+    set({ state: res.state, history: [], display: frames[0], frames: frames.slice(1), fx: withFx(fx, display, frames[0]), error: null });
     callbacks.onAction?.({ type: 'endTurn' }, res.state, []);
   },
   undo: () => {
@@ -82,17 +110,23 @@ export const useSession = create<SessionStore>((set, get) => ({
     if (!history.length) return;
     const prev = history[history.length - 1];
     const nextHistory = history.slice(0, -1);
-    set({ state: prev, display: prev, history: nextHistory, frames: [], error: null });
+    set({ state: prev, display: prev, history: nextHistory, frames: [], fx: [], error: null });
     callbacks.onAction?.({ type: 'undo' }, prev, nextHistory);
   },
   advanceFrame: () => {
-    const { frames } = get();
+    const { frames, display, fx } = get();
     if (!frames.length) return;
-    set({ display: frames[0], frames: frames.slice(1) });
+    set({ display: frames[0], frames: frames.slice(1), fx: withFx(fx, display, frames[0]) });
   },
   skipFrames: () => {
     const { state } = get();
-    set({ display: state, frames: [] });
+    set({ display: state, frames: [], fx: [] });
   },
-  clear: () => set({ state: null, display: null, history: [], frames: [], error: null, callbacks: {} }),
+  pruneFx: () => {
+    const now = Date.now();
+    const { fx } = get();
+    const alive = fx.filter((f) => now - f.born < FX_LIFETIME_MS);
+    if (alive.length !== fx.length) set({ fx: alive });
+  },
+  clear: () => set({ state: null, display: null, history: [], frames: [], fx: [], error: null, callbacks: {} }),
 }));

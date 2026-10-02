@@ -38,6 +38,8 @@ export interface RosterPlacement {
   locked?: boolean;
   /** Extra tags assigned by the template (e.g. ESCAPE's designated piece). */
   tags?: Piece['tags'];
+  /** Wards granted by the template (e.g. a late-act escapee). */
+  wards?: number;
 }
 
 /** A placed board mutation from the run (B10). */
@@ -139,7 +141,7 @@ export function createEncounter(setup: EncounterSetup, opts: ResolveOptions = {}
       d.reserve.push({ id, rosterId: entry.rosterId, type: entry.type });
       continue;
     }
-    placePiece(d, newPiece(id, entry.type, 'player', sq, { rosterId: entry.rosterId, tags }));
+    placePiece(d, newPiece(id, entry.type, 'player', sq, { rosterId: entry.rosterId, tags, wards: entry.wards ?? 0 }));
   }
 
   // Step 3: template placement.

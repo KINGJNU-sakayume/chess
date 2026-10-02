@@ -9,8 +9,6 @@ export interface Settings {
   autoEndTurn: boolean;
   /** Show squares attacked by the enemy. */
   attackOverlay: boolean;
-  /** Developer tools: debug panel, upgrade granting. */
-  developer: boolean;
   /** Expanded piece inspector by default. */
   inspectorExpanded: boolean;
 }
@@ -21,7 +19,6 @@ const DEFAULTS: Settings = {
   animSpeed: 1,
   autoEndTurn: false,
   attackOverlay: false,
-  developer: false,
   inspectorExpanded: false,
 };
 
@@ -32,8 +29,7 @@ function load(): Settings {
   } catch {
     /* storage unavailable */
   }
-  const dev = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
-  return { ...DEFAULTS, developer: dev };
+  return { ...DEFAULTS };
 }
 
 interface SettingsStore extends Settings {

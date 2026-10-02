@@ -4,8 +4,10 @@ import type { EncounterState, Piece } from '../../engine/core/state';
 import type { IntentPreview } from '../../engine/enemy/preview';
 import type { Move } from '../../engine/moves/generate';
 import { Board, type BoardArrow, type BoardPieceView, type BoardSquareView, type MoveDot } from '../board/Board';
+import { fileOf, rankOf } from '../../engine/core/coords';
 import { ArrivalMarker, ControlMarker, ExitMarker, MarkIcon, TerrainArt } from './SquareArt';
-import { pieceAura } from './identity';
+import { boardAura } from './buildIdentity';
+import { PieceAura, PieceSigils } from './identity';
 
 export interface BoardViewProps {
   state: EncounterState;
@@ -20,7 +22,12 @@ export interface BoardViewProps {
   onSquareClick: (sq: Sq) => void;
   onSquareHover: (sq: Sq | null) => void;
   moveMs: number;
+  /** Effect layer (F5). */
+  fx?: ReactNode;
 }
+
+/** A Pawn swarm this large starts to march in place (F4). */
+const SWARM_SIZE = 10;
 
 function dotFor(m: Move): MoveDot {
   if (m.pierced.length) return 'pierce';
@@ -30,7 +37,7 @@ function dotFor(m: Move): MoveDot {
   return 'move';
 }
 
-function PieceBadges({ p, intentIndex, intentCount }: { p: Piece; intentIndex: number | null; intentCount: number }) {
+function PieceBadges({ state, p, intentIndex, intentCount }: { state: EncounterState; p: Piece; intentIndex: number | null; intentCount: number }) {
   const temp = p.tempWards.reduce((n, w) => n + w.count, 0);
   const wards = p.wards + temp;
   const immobilized = p.statuses.some((s) => s.type === 'IMMOBILIZED');
@@ -67,6 +74,7 @@ function PieceBadges({ p, intentIndex, intentCount }: { p: Piece; intentIndex: n
           <span className="relative text-[clamp(8px,1.3vmin,12px)] font-extrabold text-white">{wards}</span>
         </div>
       ) : null}
+      <PieceSigils state={state} p={p} />
       {p.tags.includes('boss') ? (
         <svg viewBox="0 0 100 100" className="absolute left-[34%] top-[-6%] h-[30%] w-[32%]" fill="#e8c46a" stroke="#3b2a08" strokeWidth="5">
           <path d="M8 80 L14 24 L36 52 L50 16 L64 52 L86 24 L92 80 Z" />
@@ -98,7 +106,7 @@ function PieceBadges({ p, intentIndex, intentCount }: { p: Piece; intentIndex: n
 }
 
 export function BoardView(props: BoardViewProps) {
-  const { state, selectedId, moves, deploySquares, previews, attackOverlay, controlled, lastMove, highlight } = props;
+  const { state, selectedId, moves, deploySquares, previews, attackOverlay, controlled, lastMove, highlight, moveMs } = props;
 
   const pieces: BoardPieceView[] = useMemo(() => {
     const intentIdx = new Map<string, number>();
@@ -107,15 +115,20 @@ export function BoardView(props: BoardViewProps) {
       if (!intentIdx.has(p.intent.pieceId)) intentIdx.set(p.intent.pieceId, p.index);
       intentCount.set(p.intent.pieceId, (intentCount.get(p.intent.pieceId) ?? 0) + 1);
     });
+    const pawns = Object.values(state.pieces).filter((p) => p.side === 'player' && p.type === 'pawn').length;
+    const swarm = pawns >= SWARM_SIZE && moveMs > 0;
     return Object.values(state.pieces).map((p) => ({
       id: p.id,
       type: p.type,
       side: p.side,
       sq: p.sq,
-      underlay: p.side === 'player' ? pieceAura(state, p) : null,
-      overlay: <PieceBadges p={p} intentIndex={intentIdx.get(p.id) ?? null} intentCount={intentCount.get(p.id) ?? 0} />,
+      underlay: p.side === 'player' ? <PieceAura state={state} p={p} /> : null,
+      overlay: <PieceBadges state={state} p={p} intentIndex={intentIdx.get(p.id) ?? null} intentCount={intentCount.get(p.id) ?? 0} />,
+      className: swarm && p.side === 'player' && p.type === 'pawn' ? 'swarm-bob' : undefined,
+      phaseMs: (fileOf(p.sq) * 233 + rankOf(p.sq) * 397) % 1600,
     }));
-  }, [state, previews]);
+  }, [state, previews, moveMs]);
+  const aura = useMemo(() => boardAura(state), [state]);
 
   const squares = useMemo(() => {
     const out: Partial<Record<Sq, BoardSquareView>> = {};
@@ -231,6 +244,8 @@ export function BoardView(props: BoardViewProps) {
       onSquareClick={props.onSquareClick}
       onSquareHover={props.onSquareHover}
       moveMs={props.moveMs}
+      fx={props.fx}
+      aura={aura}
     />
   );
 }

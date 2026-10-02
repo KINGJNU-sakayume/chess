@@ -7,7 +7,7 @@ import { Placer } from '../encounters/helpers';
 /**
  * THE TYRANT QUEEN (Act II boss). The enemy Queen plans a chain of sequential
  * intents every phase (one on turn 1, two on turn 2, then three), all
- * visible; the rest of her court shares one. She starts with 2 Wards, and
+ * visible; the rest of her court shares one. She starts with 3 Wards, and
  * every time one of her routes breaks she stumbles and loses one.
  * Objective: dethrone her. Counterplay: read her route, block or bait a step
  * (the rest of the route collapses), and be waiting where she stops.
@@ -16,7 +16,7 @@ function layout(ctx: TemplateContext, mirrored: boolean): TemplateOutput {
   const P = new Placer(ctx);
   const f = (file: number) => (mirrored ? 7 - file : file);
   const at = (file: number, rank: number) => sqOf(f(file), rank);
-  P.put('queen', at(3, 7), ['boss', 'target'], 2);
+  P.put('queen', at(3, 7), ['boss', 'target'], 3);
   P.put('king', at(4, 7));
   P.put('rook', at(0, 7));
   P.put('rook', at(7, 7));
@@ -54,7 +54,7 @@ export const TYRANT_QUEEN: BossDef = {
   name: 'The Tyrant Queen',
   title: 'Act II Boss',
   description:
-    'The enemy Queen plans a route of chained intents every phase (one on turn 1, two on turn 2, then three), all visible. Her court shares a single intent. She starts with 2 Wards: block or bait any step and the rest of her route collapses, and she stumbles and loses a Ward. Capture her to win.',
+    'The enemy Queen plans a route of chained intents every phase (one on turn 1, two on turn 2, then three), all visible. Her court shares a single intent. She starts with 3 Wards: block or bait any step and the rest of her route collapses, and she stumbles and loses a Ward. Capture her to win.',
   hooks: {},
   multiIntent: { tag: 'boss', count: 3, ramp: true },
   // Break her route and she stumbles: the Ward shatters.

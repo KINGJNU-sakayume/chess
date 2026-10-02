@@ -5,6 +5,7 @@ import type { BehaviorProfile, EncounterState, Intent, Piece } from '../core/sta
 import { createGenContext, pieceAttacks, pieceMoves, type GenContext, type Move } from '../moves/generate';
 import { makeHypo, mutableCopy, retarget, unmakeHypo } from '../moves/hypo';
 import { Rng } from '../rng/rng';
+import { NET_BONUS, PROFILE_WEIGHTS } from '../../data/profiles';
 
 /**
  * Enemy intent planner (B4). Deterministic heuristics, no deep search:
@@ -15,21 +16,7 @@ import { Rng } from '../rng/rng';
  * piece. Ties are broken with the encounter's seeded enemyAI stream.
  */
 
-interface Weights {
-  capture: number;
-  check: number;
-  safety: number;
-  goal: number;
-  protect: number;
-}
-
-export const PROFILE_WEIGHTS: Record<BehaviorProfile['kind'], Weights> = {
-  aggressive: { capture: 1.0, check: 1.0, safety: 0.45, goal: 0.7, protect: 0.15 },
-  guard_king: { capture: 0.75, check: 0.45, safety: 0.9, goal: 0.35, protect: 1.0 },
-  hold_line: { capture: 0.85, check: 0.45, safety: 0.9, goal: 0.8, protect: 0.4 },
-  race_promotion: { capture: 0.6, check: 0.3, safety: 0.55, goal: 1.3, protect: 0.25 },
-  hunter: { capture: 0.7, check: 0.6, safety: 0.5, goal: 1.1, protect: 0.2 },
-};
+export { PROFILE_WEIGHTS };
 
 const V = (p: Pick<Piece, 'type'>) => PIECE_VALUE[p.type];
 
@@ -276,6 +263,10 @@ export function planIntents(
   for (let i = 0; i < count; i++) slots.push({});
   // A chained route never revisits a square it already stood on this phase (no back-and-forth routes).
   const routeSquares = new Set<Sq>(extra && state.pieces[extra.pieceId] ? [state.pieces[extra.pieceId].sq] : []);
+  // King hunters close the net: once one intent strikes the King's square, the following intents
+  // aim at the squares it could step to (a dodge onto a netted square walks into a committed capture).
+  const netting = pc.profile.kind === 'aggressive' || (pc.profile.kind === 'hunter' && pc.profile.target === 'king');
+  let net: Set<Sq> | null = null;
   for (let i = 0; i < slots.length; i++) {
     const only = slots[i].only;
     if (!only && extra) used.add(extra.pieceId);
@@ -297,7 +288,14 @@ export function planIntents(
       for (const m of pieceMoves(ctx, id)) {
         if (pc.royalCurse && p.type === 'king' && idx.player[m.to].length > 0) continue;
         if (only && routeSquares.has(m.to)) continue;
-        const score = scoreMove(h, slot, m, pc) + rng.float() * 0.5;
+        let score = scoreMove(h, slot, m, pc);
+        if (net && !only) {
+          // While the King can still step away, covering its escape squares is the point and a second
+          // strike is only a backup. A boxed-in King (no escape left) has to answer every strike at once.
+          if (m.captureId && h.pieces[m.captureId]?.type === 'king') score = net.size === 0 ? 5000 : 60;
+          else if (net.has(m.to)) score += NET_BONUS;
+        }
+        score += rng.float() * 0.5;
         if (!best || score > best.score) best = { move: m, score };
       }
     }
@@ -319,6 +317,12 @@ export function planIntents(
     });
     used.add(m.pieceId);
     if (only) routeSquares.add(m.to);
+    if (!only && netting && !net && target?.type === 'king') {
+      // Keep the King on the hypothetical board: it may dodge, and the next intents plan around that.
+      net = new Set(pieceMoves(ctx, target.id).filter((km) => !km.captureId).map((km) => km.to));
+      continue;
+    }
+    net?.delete(m.to);
     // Later slots (and a boss's chained intents) plan from where this one really leaves the board.
     makeHypo(h, m, { wards: true });
   }

@@ -41,8 +41,8 @@ function layout(ctx: TemplateContext, mirrored: boolean): TemplateOutput {
   }
   return {
     name: 'The Fortress King',
-    objective: { type: 'ASSASSINATION', label: 'Capture the Fortress King within 11 turns. Every 3 turns it raises Sanctuaries.' },
-    turnLimit: 11,
+    objective: { type: 'ASSASSINATION', label: 'Capture the Fortress King within 12 turns. Every 3 turns it raises Sanctuaries.' },
+    turnLimit: 12,
     enemyActions: 1,
     profile: { kind: 'guard_king' },
     enemies: P.enemies,

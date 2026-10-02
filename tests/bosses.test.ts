@@ -37,7 +37,7 @@ describe('bosses (Part E)', () => {
     let s = boss('tyrant_queen', 2);
     const queen = Object.values(s.pieces).find((p) => p.tags.includes('boss'))!;
     expect(queen.type).toBe('queen');
-    expect(queen.wards).toBe(2);
+    expect(queen.wards).toBe(3);
     expect(s.config.objective.type).toBe('ELIMINATION');
     for (const length of [1, 2, 3]) {
       const route = s.intents.filter((i) => i.pieceId === queen.id);

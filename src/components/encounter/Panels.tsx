@@ -4,6 +4,7 @@ import { PIECE_NAME, type PieceType } from '../../engine/core/pieces';
 import type { ActionToken, EncounterState, LogEntry, ReserveEntry } from '../../engine/core/state';
 import { intentText, type IntentPreview } from '../../engine/enemy/preview';
 import type { PieceInspection } from '../../engine/inspect';
+import { RARITY_STYLE } from '../run/rarity';
 import { objectiveSummary, targetsRemaining } from '../../engine/encounters/objectives';
 import { BOSSES } from '../../data/bosses';
 import { affixDef } from '../../engine/rules/registry';
@@ -77,7 +78,7 @@ export function ActionTokens({ tokens, free }: { tokens: ActionToken[]; free: nu
         <span
           key={t.id}
           title={t.label}
-          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          className={`token-pop rounded-full px-2 py-0.5 text-[11px] font-semibold ${
             t.source === 'base' ? 'bg-gold-400 text-ink-950' : 'bg-arcane-500/80 text-white shadow-[0_0_8px_rgba(94,200,214,0.6)]'
           }`}
         >
@@ -214,7 +215,18 @@ export function CombatLog({ log, onHover }: { log: LogEntry[]; onHover: (sqs: nu
 
 // ---------------------------------------------------------------------------
 
-export function Inspector({ info, expanded, onToggle }: { info: PieceInspection | null; expanded: boolean; onToggle: () => void }) {
+export function Inspector({
+  info,
+  expanded,
+  onToggle,
+  powers = [],
+}: {
+  info: PieceInspection | null;
+  expanded: boolean;
+  onToggle: () => void;
+  /** Kinds of power the piece's upgrades grant (its sigils). */
+  powers?: string[];
+}) {
   if (!info) {
     return (
       <div className="panel p-3 text-xs text-ink-400">
@@ -223,14 +235,14 @@ export function Inspector({ info, expanded, onToggle }: { info: PieceInspection 
       </div>
     );
   }
-  const shown = expanded ? info.modifiers : info.modifiers.slice(0, 4);
+  const active = info.modifiers.filter((m) => m.active).length;
   return (
     <div className="panel p-3">
       <PanelTitle
         right={
-          info.modifiers.length > 4 ? (
-            <button type="button" className="text-[11px] text-arcane-300 hover:underline" onClick={onToggle}>
-              {expanded ? 'Collapse' : `Expand (${info.modifiers.length})`}
+          info.modifiers.length || info.squares.length ? (
+            <button type="button" className="text-[11px] text-arcane-300 hover:underline" onClick={onToggle} title="Toggle details (I)">
+              {expanded ? 'Compact' : 'Details'}
             </button>
           ) : null
         }
@@ -247,17 +259,55 @@ export function Inspector({ info, expanded, onToggle }: { info: PieceInspection 
       </div>
       {info.modifiers.length ? (
         <div className="mt-2">
-          <div className="text-[11px] text-ink-400">{info.side === 'player' ? 'Run modifiers' : 'Modifiers'}</div>
-          <ul className="mt-1 space-y-1">
-            {shown.map((m) => (
-              <li key={m.id} className={`text-xs ${m.active ? 'text-ink-100' : 'text-ink-400'}`} title={m.detail}>
-                <span className={m.active ? 'text-emerald-300' : 'text-ink-500'}>{m.active ? '✓' : '○'}</span> {m.name}
-                {m.note ? <span className="text-gold-300"> ({m.note})</span> : null}
-                {expanded ? <div className="pl-4 text-[11px] text-ink-300">{m.detail}</div> : null}
-              </li>
-            ))}
-          </ul>
-          {!expanded && info.modifiers.length > 4 ? <div className="mt-1 text-[11px] text-ink-400">+{info.modifiers.length - 4} more…</div> : null}
+          <div className="text-[11px] text-ink-400">
+            {info.side === 'player' ? 'Run modifiers' : 'Modifiers'} ({info.modifiers.length}
+            {active < info.modifiers.length ? `, ${active} active` : ''})
+            {powers.length ? <span className="text-ink-500"> · {powers.join(' · ')}</span> : null}
+          </div>
+          {expanded ? (
+            <ul className="mt-1 max-h-[38vh] space-y-1.5 overflow-y-auto pr-1">
+              {info.modifiers.map((m) => (
+                <li key={m.id} className={`text-xs ${m.active ? 'text-ink-100' : 'text-ink-400'}`}>
+                  <span className={m.active ? 'text-emerald-300' : 'text-ink-500'}>{m.active ? '✓' : '○'}</span>{' '}
+                  <span className={m.rarity ? RARITY_STYLE[m.rarity].text : ''}>{m.name}</span>
+                  {m.note ? <span className="text-gold-300"> ({m.note})</span> : null}
+                  <div className="pl-4 text-[11px] leading-snug text-ink-300">{m.detail}</div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {info.modifiers.map((m) => (
+                <span
+                  key={m.id}
+                  title={`${m.detail}${m.note ? ` — ${m.note}` : ''}`}
+                  className={`rounded-md border px-1.5 py-0.5 text-[11px] ${m.rarity ? RARITY_STYLE[m.rarity].ring : 'border-ink-500'} ${
+                    m.active ? 'bg-ink-800 text-ink-100' : 'bg-transparent text-ink-400 opacity-70'
+                  }`}
+                >
+                  {m.name}
+                  {m.note ? <span className="text-gold-300"> · {m.note}</span> : null}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+      {info.squares.length ? (
+        <div className="mt-2 text-xs text-ink-300">
+          <span className="text-ink-400">Square: </span>
+          {expanded
+            ? info.squares.map((q) => (
+                <div key={q.name} className="mt-0.5">
+                  <span className={q.mine ? 'text-arcane-300' : 'text-blood-300'}>{q.name}</span>
+                  <span className="text-[11px] text-ink-400"> — {q.text}</span>
+                </div>
+              ))
+            : info.squares.map((q) => (
+                <span key={q.name} title={q.text} className={q.mine ? 'text-arcane-300' : 'text-blood-300'}>
+                  {q.name}{' '}
+                </span>
+              ))}
         </div>
       ) : null}
       <div className="mt-2 text-xs text-ink-300">

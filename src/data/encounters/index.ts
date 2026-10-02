@@ -1,5 +1,6 @@
-import { parseSq, sqOf } from '../../engine/core/coords';
+import { fileOf, parseSq, sqOf, type Sq } from '../../engine/core/coords';
 import type { PieceType } from '../../engine/core/pieces';
+import type { ReinforcementWave } from '../../engine/core/state';
 import type { EncounterTemplate, TemplateContext, TemplateOutput } from '../../engine/encounters/templates';
 import { actTuning } from '../acts';
 import { clampFile, nearFiles, Placer, turnLimitFor } from './helpers';
@@ -196,34 +197,50 @@ const hunt: EncounterTemplate = {
 };
 
 // ---------------------------------------------------------------------------
-// SURVIVAL — Last Stand
+// SURVIVAL — Last Stand (an ambush: the enemy drops in around your King)
 // ---------------------------------------------------------------------------
+
+/**
+ * Squares in front of the player's lines where ambushers land, near the King's
+ * file: telegraphed from the start, and occupying one delays that arrival.
+ */
+function dropZone(ctx: TemplateContext, P: Placer): Sq[] {
+  const kingFile = ctx.playerKing !== null ? fileOf(ctx.playerKing) : 4;
+  const front = Math.min(5, ctx.deploymentTop + 1);
+  return P.region(nearFiles(kingFile, 2), [front, front + 1]);
+}
 
 const lastStand: EncounterTemplate = {
   id: 'last_stand',
   name: 'Last Stand',
   objective: 'SURVIVAL',
-  blurb: 'Keep your King alive.',
+  blurb: 'An ambush: keep your King alive.',
   acts: [1, 2, 3],
   weight: 2,
   generate(ctx) {
     const P = new Placer(ctx);
     const force: PieceType[][] = [
       [],
-      ['knight', 'knight', 'bishop', 'rook', 'pawn', 'pawn'],
-      ['knight', 'bishop', 'bishop', 'rook', 'rook', 'pawn', 'pawn', 'pawn'],
-      ['knight', 'knight', 'bishop', 'rook', 'rook', 'queen', 'pawn', 'pawn', 'pawn'],
+      ['knight', 'bishop', 'rook', 'pawn', 'pawn'],
+      ['knight', 'bishop', 'rook', 'rook', 'pawn', 'pawn'],
+      ['knight', 'bishop', 'bishop', 'rook', 'queen', 'pawn', 'pawn'],
     ];
-    for (const t of force[ctx.act]) P.putIn(t, t === 'pawn' ? P.region([0, 7], [5, 6]) : P.region([0, 7], [6, 7]));
-    const waveTypes: PieceType[] = ctx.act >= 2 ? ['knight', 'bishop', 'rook'] : ['knight', 'bishop'];
-    const backRank = P.region([0, 7], [7, 7]);
-    const wave = (phase: number, n: number) => ({
-      phase,
-      pieces: Array.from({ length: n }, () => backRank.splice(ctx.rng.int(Math.max(1, backRank.length)), 1)[0])
-        .filter((sq) => sq !== undefined)
-        .map((sq) => ({ type: pick(ctx, waveTypes), sq })),
-    });
-    const T = [0, 5, 6, 6][ctx.act];
+    for (const t of force[ctx.act]) P.putIn(t, t === 'pawn' ? P.region([0, 7], [4, 5]) : P.region([0, 7], [5, 7]));
+    // Ambushers drop in every phase, one at a time in Act I.
+    const ambushers: PieceType[] = ctx.act >= 3 ? ['knight', 'bishop', 'rook', 'knight'] : ctx.act >= 2 ? ['knight', 'bishop', 'knight'] : ['knight', 'bishop'];
+    const zone = dropZone(ctx, P);
+    const T = [0, 6, 7, 7][ctx.act];
+    const waves: ReinforcementWave[] = [];
+    for (let phase = 1; phase < T && zone.length; phase++) {
+      const n = ctx.act >= 3 && phase % 2 === 0 ? 2 : 1;
+      const pieces = [];
+      for (let k = 0; k < n && zone.length; k++) {
+        const sq = zone.splice(ctx.rng.int(zone.length), 1)[0];
+        P.used.add(sq);
+        pieces.push({ type: pick(ctx, ambushers), sq });
+      }
+      waves.push({ phase, pieces });
+    }
     return {
       name: 'Last Stand',
       objective: { type: 'SURVIVAL' },
@@ -232,7 +249,7 @@ const lastStand: EncounterTemplate = {
       profile: { kind: 'hunter', target: 'king' },
       enemies: P.enemies,
       terrain: P.terrain,
-      waves: [wave(2, ctx.act >= 2 ? 2 : 1), wave(4, ctx.act >= 3 ? 2 : 1)],
+      waves,
     };
   },
   safe(ctx) {
@@ -240,6 +257,8 @@ const lastStand: EncounterTemplate = {
     for (const s of ['b8', 'g8']) P.put('knight', parseSq(s));
     P.put('rook', parseSq('a8'));
     for (const s of ['c6', 'f6']) P.put('pawn', parseSq(s));
+    const zone = dropZone(ctx, P);
+    const waves: ReinforcementWave[] = [1, 3].flatMap((phase) => (zone.length ? [{ phase, pieces: [{ type: 'knight' as const, sq: zone.splice(ctx.rng.int(zone.length), 1)[0] }] }] : []));
     return {
       name: 'Last Stand',
       objective: { type: 'SURVIVAL' },
@@ -248,7 +267,7 @@ const lastStand: EncounterTemplate = {
       profile: { kind: 'hunter', target: 'king' },
       enemies: P.enemies,
       terrain: [],
-      waves: [{ phase: 2, pieces: [{ type: 'bishop', sq: parseSq('c8') }] }],
+      waves,
     };
   },
 };
@@ -314,7 +333,7 @@ const breakout: EncounterTemplate = {
   weight: 2,
   generate(ctx) {
     const P = new Placer(ctx);
-    const exitFiles = ctx.rng.shuffle([1, 2, 3, 4, 5, 6]).slice(0, ctx.act >= 3 ? 2 : 3);
+    const exitFiles = ctx.rng.shuffle([1, 2, 3, 4, 5, 6]).slice(0, 3);
     const exits = exitFiles.map((f) => sqOf(f, 7));
     for (const sq of exits) P.used.add(sq);
     const pawns = [0, ctx.rng.range(2, 3), ctx.rng.range(3, 4), 4][ctx.act];
@@ -325,13 +344,14 @@ const breakout: EncounterTemplate = {
     return {
       name: 'Breakout',
       objective: { type: 'ESCAPE', squares: exits },
-      turnLimit: turnLimitFor(ctx, actTuning(ctx.act).turnLimit),
+      turnLimit: turnLimitFor(ctx, actTuning(ctx.act).turnLimit, ctx.act >= 2 ? 1 : 0),
       enemyActions: baseActions(ctx),
       profile: { kind: 'hunter', target: 'escapee' },
       enemies: P.enemies,
       terrain: P.terrain,
       waves: [],
-      designate: { prefer: ['knight', 'bishop', 'rook', 'queen', 'pawn'], tag: 'escapee' },
+      // Hunters gang up on the runner from Act II on; a Ward buys it one mistake.
+      designate: { prefer: ['knight', 'bishop', 'rook', 'queen', 'pawn'], tag: 'escapee', wards: ctx.act >= 2 ? 1 : 0 },
     };
   },
   safe(ctx) {

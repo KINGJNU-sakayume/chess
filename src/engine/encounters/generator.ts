@@ -68,30 +68,37 @@ function rollEliteAffixes(rng: Rng, act: number, out: TemplateOutput): { affixes
   return { affixes, extraAction: false };
 }
 
-function designate(roster: RosterPlacement[], prefer: PieceType[], tag: PieceTag): RosterPlacement[] {
+function designate(roster: RosterPlacement[], prefer: PieceType[], tag: PieceTag, wards = 0): RosterPlacement[] {
   for (const type of prefer) {
     const idx = roster.findIndex((r) => r.type === type && r.sq !== null);
-    if (idx >= 0) return roster.map((r, i) => (i === idx ? { ...r, tags: [...(r.tags ?? []), tag] } : r));
+    if (idx >= 0) return roster.map((r, i) => (i === idx ? { ...r, tags: [...(r.tags ?? []), tag], ...(wards ? { wards } : {}) } : r));
   }
   return roster;
 }
 
+/** Elites hit harder; on timed objectives they also allow a little longer (holding out stays as long). */
+function eliteTurnBonus(input: GenerateInput, out: TemplateOutput): number {
+  const holdOut = out.objective.type === 'SURVIVAL' || out.objective.type === 'DEFENSE';
+  return input.kind !== 'elite' || out.turnLimit === null || holdOut ? 0 : actTuning(input.act).eliteTurnBonus;
+}
+
 export function buildSetup(input: GenerateInput, out: TemplateOutput, attemptSeed: string, extra: { affixes: string[]; extraAction: boolean }): EncounterSetup {
+  const bonus = eliteTurnBonus(input, out);
   const config: EncounterConfig = {
     id: attemptSeed,
     templateId: input.templateId,
     name: out.name,
     act: input.act,
     kind: input.kind,
-    objective: out.objective,
-    turnLimit: out.turnLimit,
+    objective: bonus && out.objective.countdown != null ? { ...out.objective, countdown: out.objective.countdown + bonus } : out.objective,
+    turnLimit: out.turnLimit === null ? null : out.turnLimit + bonus,
     enemyActions: out.enemyActions + (extra.extraAction ? 1 : 0),
     profile: out.profile,
     affixes: extra.affixes,
     bossId: out.bossId,
     seed: attemptSeed,
   };
-  const roster = out.designate ? designate(input.roster, out.designate.prefer, out.designate.tag) : input.roster;
+  const roster = out.designate ? designate(input.roster, out.designate.prefer, out.designate.tag, out.designate.wards) : input.roster;
   return {
     config,
     rules: { upgrades: input.rules.upgrades, affixes: [...input.rules.affixes, ...extra.affixes] },
@@ -116,12 +123,13 @@ function templateFor(input: GenerateInput): EncounterTemplate {
 export function generateEncounter(input: GenerateInput, opts: { validate?: boolean; attempts?: number; playouts?: number } = {}): GeneratedEncounter {
   const template = templateFor(input);
   const occupied = new Set<Sq>(input.roster.filter((r) => r.sq !== null).map((r) => r.sq as Sq));
+  const playerKing = (input.roster.find((r) => r.type === 'king' && r.sq !== null)?.sq ?? null) as Sq | null;
   const attempts = opts.attempts ?? MAX_ATTEMPTS;
   const validate = opts.validate ?? true;
   let lastReport: ValidationReport | null = null;
   for (let k = 0; k < attempts; k++) {
     const rng = new Rng(deriveStream(input.seed, `gen:${k}`));
-    const ctx: TemplateContext = { rng, act: input.act, kind: input.kind, difficulty: input.difficulty, occupied, deploymentTop: input.deploymentTop };
+    const ctx: TemplateContext = { rng, act: input.act, kind: input.kind, difficulty: input.difficulty, occupied, deploymentTop: input.deploymentTop, playerKing };
     const out = template.generate(ctx);
     const extra = input.kind === 'elite' ? rollEliteAffixes(rng, input.act, out) : { affixes: [], extraAction: false };
     const setup = buildSetup(input, out, `${input.seed}#${k}`, extra);
@@ -131,7 +139,7 @@ export function generateEncounter(input: GenerateInput, opts: { validate?: boole
     if (report.ok) return { setup, attempts: k + 1, fallback: false, report };
   }
   const rng = new Rng(deriveStream(input.seed, 'safe'));
-  const ctx: TemplateContext = { rng, act: input.act, kind: input.kind, difficulty: input.difficulty, occupied, deploymentTop: input.deploymentTop };
+  const ctx: TemplateContext = { rng, act: input.act, kind: input.kind, difficulty: input.difficulty, occupied, deploymentTop: input.deploymentTop, playerKing };
   const out = template.safe(ctx);
   const extra = input.kind === 'elite' ? rollEliteAffixes(rng, input.act, out) : { affixes: [], extraAction: false };
   const setup = buildSetup(input, out, `${input.seed}#safe`, extra);
@@ -187,6 +195,17 @@ export function validateEncounter(setup: EncounterSetup, opts: { playouts?: numb
     const after = applyPlayerAction(state, a, { silent: true }).state;
     if (after.outcome?.result === 'won') {
       reasons.push('completable with the first action');
+      return done(false);
+    }
+  }
+
+  // 2b. Holding out must take play: an idle player (End Turn every turn) may not survive.
+  if (setup.config.objective.type === 'SURVIVAL' || setup.config.objective.type === 'DEFENSE') {
+    let idle = state;
+    const cap = (setup.config.turnLimit ?? 12) + 1;
+    while (!idle.outcome && idle.turn <= cap) idle = endTurn(idle, { silent: true }).state;
+    if (idle.outcome?.result === 'won') {
+      reasons.push('survivable without acting');
       return done(false);
     }
   }
