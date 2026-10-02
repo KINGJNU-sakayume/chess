@@ -45,24 +45,57 @@ interface Change {
 
 /** Every changed card, grouped by its tier after the patch. */
 const CHANGES: Change[] = [
+  // Silver
   {
     id: 'conscript',
     tags: ['tier'],
     from: 'gold',
     rows: [['등급', '골드', TIER_NAME[cardById('conscript').tier]]],
-    note: '첫째 줄에 빈 칸이 생겨야 쓸 수 있고, 소환된 나이트가 전장에 닿기까지 두 수가 더 걸립니다. 즉시 나이트를 놓는 선봉대와 등급을 맞바꿨습니다.',
+    note: '첫째 줄에 빈 칸이 생겨야 쓸 수 있고, 소환된 나이트가 전장에 닿기까지 두 수가 더 걸립니다. 골드 중에서는 가장 약했고, 실버에서는 중상위권입니다.',
+  },
+  {
+    id: 'early_promotion',
+    tags: ['tier', 'adjust'],
+    from: 'gold',
+    rows: [
+      ['등급', '골드', TIER_NAME[cardById('early_promotion').tier]],
+      ['함께 가질 수 없음', '없음', '돌파'],
+    ],
+    note: '혼자서는 골드 값을 하지 못했지만(골드 중 최하위권), 돌격 행군·보병의 투지와 묶으면 폰 빌드의 엔진이 됩니다. 돌파와 함께면 두 수 만에 이겼으므로 둘은 함께 가질 수 없습니다.',
+  },
+  {
+    id: 'minefield',
+    tags: ['tier', 'buff'],
+    from: 'gold',
+    rows: [
+      ['등급', '골드', TIER_NAME[cardById('minefield').tier]],
+      ['사용 횟수', '2회', uses('minefield')],
+    ],
+    note: '함정은 양쪽에 보이기 때문에 상대가 쉽게 피해 갑니다. 한 장을 더 깔게 하고 실버로 옮겼습니다.',
   },
   {
     id: 'pawn_sidestep',
     tags: ['buff'],
     rows: [['좌우 이동', '이동만', '이동 + 잡기']],
-    note: '측정해 보니 이 증강을 든 쪽의 승률이 거의 오르지 않았습니다(52%). 옆으로 잡을 수 있게 되면서 폰 사슬이 옆구리를 지킵니다.',
+    note: '이 증강을 든 쪽의 승률이 거의 오르지 않았습니다(아무 증강 없는 상대에게 52%). 옆으로 잡을 수 있게 되면서 폰 사슬이 옆구리를 지킵니다.',
   },
   {
     id: 'pawn_retreat',
     tags: ['buff'],
     rows: [['뒤로', '한 칸 이동', '한 칸 이동 + 대각선 뒤로 잡기']],
     note: '물러나기만 하는 폰은 승부에 거의 영향이 없었습니다(55%). 이제 뒤로 빠지면서 파고든 기물을 잡을 수 있습니다.',
+  },
+  {
+    id: 'sniper',
+    tags: ['buff'],
+    rows: [['사용 횟수', '1회', uses('sniper')]],
+    note: '같은 실버끼리 붙였을 때 세 번의 측정 모두 최하위권이었습니다. 폰 하나로는 판을 흔들기 어려웠습니다.',
+  },
+  {
+    id: 'shield',
+    tags: ['nerf'],
+    rows: [['대상', '킹이 아닌 기물', '킹과 퀸이 아닌 기물']],
+    note: '아래 「규칙 변경: 퀸과 보호막」을 확인하세요. 측정에서 실버 1위였습니다.',
   },
   {
     id: 'barricade',
@@ -82,24 +115,25 @@ const CHANGES: Change[] = [
     rows: [['적용 대상', '룩', '룩 + 재상']],
     note: '재상 임명과 함께 써도 효과가 사라지지 않습니다.',
   },
+  // Gold
   {
-    id: 'vanguard',
+    id: 'knight_oath',
     tags: ['tier'],
     from: 'silver',
-    rows: [['등급', '실버', TIER_NAME[cardById('vanguard').tier]]],
-    note: '도전에서는 매 대국 시작마다 나이트가 한 개 더 생깁니다. 폰 세 개에 해당하는 이득은 실버의 몫을 크게 넘었습니다.',
+    rows: [['등급', '실버', TIER_NAME[cardById('knight_oath').tier]]],
+    note: '잡을 때마다 보호막이 다시 생겨, 나이트가 지켜진 기물을 잡고도 되튕겨 살아남는 일이 반복됐습니다. 모든 측정에서 실버 최상위였습니다.',
   },
   {
-    id: 'minefield',
+    id: 'royal_guard',
+    tags: ['nerf'],
+    rows: [['보호막 대상', '킹 옆 기물 모두', '킹 옆 기물 모두(퀸 제외)']],
+    note: '시작 국면에서 퀸에게도 보호막이 씌워져, 측정한 모든 판에서 골드 1위(승률 97~100%)였습니다.',
+  },
+  {
+    id: 'resurrect',
     tags: ['buff'],
-    rows: [['사용 횟수', '2회', uses('minefield')]],
-    note: '함정은 양쪽에 보이기 때문에 상대가 쉽게 피해 갑니다. 한 장 더 깔아야 진짜 지뢰밭이 됩니다.',
-  },
-  {
-    id: 'early_promotion',
-    tags: ['adjust'],
-    rows: [['함께 가질 수 없음', '없음', '돌파']],
-    note: '돌파와 함께면 돌격 행군 한 장만 더해도 두 수 만에 이겼습니다.',
+    rows: [['사용 횟수', '1회', uses('resurrect')]],
+    note: '기물을 잃어야만 쓸 수 있는 카드라 골드 중 최하위권이었습니다.',
   },
   {
     id: 'ordain',
@@ -107,14 +141,15 @@ const CHANGES: Change[] = [
     rows: [['함께 가질 수 없음', '없음', '기마 기사단']],
     note: '기마 기사단을 가지면 승격할 비숍이 남지 않아 이 카드가 아무 일도 하지 않았습니다.',
   },
+  // Prism
   {
     id: 'coronation',
     tags: ['rework', 'nerf'],
     rows: [
       ['종류', '패시브', `액티브 · ${uses('coronation')}`],
-      ['효과', '폰이 5번째 줄에서 승진', '상대 진영의 폰 하나를 퀸으로 (그 턴엔 이동 불가)'],
+      ['효과', '폰이 5번째 줄에서 승진', '상대 진영의 폰 하나를 퀸으로'],
     ],
-    note: '폰이 5번째 줄에서 승진하면 d4–d5 두 수 만에 퀸이 나왔고, 폰 여덟 개가 모두 퀸 후보였습니다. 이제는 대국마다 한 번, 상대 진영까지 밀고 들어간 폰에게 왕관을 씌웁니다.',
+    note: '폰이 5번째 줄에서 승진하면 d4–d5 두 수 만에 퀸이 나왔고, 폰 여덟 개가 모두 퀸 후보였습니다. 이제는 대국마다 한 번, 상대 진영까지 밀고 들어간 폰에게 왕관을 씌웁니다. 새 퀸은 그 턴에는 움직일 수 없습니다.',
   },
   {
     id: 'breakthrough',
@@ -130,12 +165,21 @@ const CHANGES: Change[] = [
     id: 'king_of_the_hill',
     tags: ['nerf'],
     rows: [['승리 시점', '중앙에 들어서는 순간', '들어선 뒤 상대 턴을 버티면']],
-    note: '아래 「규칙 변경」을 확인하세요.',
+    note: '아래 「규칙 변경: 언덕의 왕」을 확인하세요.',
+  },
+  {
+    id: 'divine_aegis',
+    tags: ['rework', 'nerf'],
+    rows: [
+      ['보호막 대상', '킹을 뺀 모든 기물(폰 포함)', '룩·비숍·나이트(대주교·재상 포함)'],
+      ['대가', '없음', '잡기를 한 기물은 보호막을 잃음'],
+    ],
+    note: '측정한 모든 판에서 프리즘 1위(90~100%)였고, 보호막 개수만 줄여서는 1위에서 내려오지 않았습니다. 문제는 "보호막을 두르고 지켜진 기물을 잡으러 가는" 공격이었습니다. 이제 보호막은 지키는 동안만 유지되고 공격에 나서는 순간 사라지며, 같은 프리즘끼리 승점이 95%에서 72%로 내려와 상위권에 자리 잡았습니다.'
   },
   {
     id: 'revival',
     tags: ['buff'],
-    rows: [['되살린 기물', '그대로', '보호막을 두르고 등장']],
+    rows: [['되살린 기물', '그대로', '보호막을 두르고 등장(퀸 제외)']],
     note: '기물을 잃어야만 쓸 수 있는 카드치고는 프리즘다운 한 방이 부족했습니다.',
   },
   {
@@ -170,16 +214,23 @@ const NEXT: [string, string][] = [
   ['공성 포격 (골드)', '킹과 퀸을 제외한 상대 기물 하나를 제거합니다. 저격의 상위 카드입니다.'],
   ['피의 계약 (프리즘)', '즉시 퀸을 하나 더 얻지만 a·h 파일 폰을 잃습니다. 대가가 붙은 강력한 증강의 시험작입니다.'],
   ['점령 (프리즘, 승리 조건)', '내 차례가 끝날 때 상대 진영 마지막 두 줄에 아군 기물이 셋 있으면 승리합니다.'],
+  ['3막 보스 「폰 황제」 강화', '측정에서 플레이어 봇에게 매번 졌습니다. 이번에 강해진 폰 증강들로 다시 구성할 예정입니다.'],
+  ['관찰 중인 증강', '아마존의 각성·언덕의 왕(프리즘 하위권), 측면 행군(상향 후 실버 상위권). 측정을 더 모은 뒤 조정합니다.'],
   ['도전 새로고침', '막마다 한 번, 보상 제시를 새로 뽑을 수 있게 합니다.'],
   ['건너뛰기 보상', '보상 증강을 건너뛰면 골드를 조금 받습니다.'],
 ];
 
-/** Card power index from `npm run sim:cards` (filled in from the measured runs). */
+/** Measurements from `npm run sim:cards` before and after the patch (scripts/patch-notes/sim.json). */
 export interface SimSummary {
+  /** Games per card, games per tier-vs-tier matchup, AI level. */
   games: number;
-  level: string;
-  before: Record<Tier, number>;
-  after: Record<Tier, number>;
+  crossGames: number;
+  level: number;
+  /** Lower tier's score against the higher tier: [label, before, after]. */
+  cross: [string, number, number][];
+  /** Spread (standard deviation) of card scores inside each tier against the same tier: [before, after]. */
+  spread: Record<Tier, [number, number]>;
+  /** Score against a side with no augments: [label, before, after]. */
   combos: [string, number, number][];
 }
 
@@ -311,15 +362,15 @@ function Notes({ sim }: { sim: SimSummary | null }) {
         <div className="date">{DATE} · 밸런스 패치</div>
         <ul className="highlights">
           <li>도전 보상 3장이 이제 언제나 같은 등급으로 나옵니다</li>
-          <li>언덕의 왕: 중앙에 오른 뒤 한 턴을 버텨야 승리</li>
-          <li>증강 {CHANGES.length}종 조정, 신규 증강 {NEW_CARDS.length}종</li>
+          <li>언덕의 왕은 한 턴을 버텨야 승리, 퀸은 보호막을 얻지 않음</li>
+          <li>증강 {CHANGES.length}종 조정(등급 이동 {CHANGES.filter((c) => c.from).length}종), 신규 증강 {NEW_CARDS.length}종</li>
           <li>함께 가질 수 없는 증강 조합 도입</li>
         </ul>
       </header>
 
       <Section n={1} title="개발자 코멘트">
         <div className="comment">
-          <p>안녕하세요, 브레이크 체스 개발팀입니다. 1.1 패치는 증강 전체를 처음으로 다시 들여다본 밸런스 패치입니다. 플레이 기록과 시뮬레이션에서 두 가지 문제가 크게 보였습니다.</p>
+          <p>안녕하세요, 브레이크 체스 개발팀입니다. 1.1 패치는 증강 전체를 처음으로 다시 들여다본 밸런스 패치입니다. 플레이 기록과 시뮬레이션에서 세 가지 문제가 크게 보였습니다.</p>
           <p>
             <b>첫째, 고르는 재미가 없는 보상.</b> 도전 보상 세 장의 등급이 제각각 나와서, 프리즘이 한 장이라도 섞여 있으면 고민할 것 없이 그 카드를 가져가게 됐습니다. 증강은 많이 가질수록 손해가 없으니
             높은 등급이 언제나 정답이었고, 보상 화면은 선택이 아니라 확인 버튼이 되어 버렸습니다.
@@ -327,6 +378,10 @@ function Notes({ sim }: { sim: SimSummary | null }) {
           <p>
             <b>둘째, 막을 수 없는 조합.</b> 언덕의 왕과 전사왕은 세 수, 돌파와 조기 승진과 돌격 행군은 두 수 만에 상대가 무엇을 하든 승리했습니다. 대관식은 두 번째 수에 퀸을 만들었습니다. 3막 보스
             「언덕의 왕」이 바로 그 조합이었습니다.
+          </p>
+          <p>
+            <b>셋째, 보호막을 두른 퀸.</b> 카드 하나씩의 힘을 측정했더니, 퀸에게 보호막을 씌우는 카드가 모든 등급에서 1위였습니다. 반대로 측면 행군·전술적 후퇴·돌파처럼 들고 있어도 승률이 거의 오르지 않는
+            카드도 있었습니다.
           </p>
           <p>
             이번 패치의 목표는 한 문장입니다. <b className="gold">“등급은 운이 정하고, 고르는 건 실력이 정한다.”</b> 높은 등급은 여전히 더 강합니다. 그 대신 같은 등급끼리 겨루게 해서, 어떤 카드를
@@ -382,7 +437,7 @@ function Notes({ sim }: { sim: SimSummary | null }) {
             const [a, b] = pair.split('|');
             return (
               <li key={pair}>
-                <b style={{ color: ACCENT[cardById(a).tier] }}>{cardById(a).name}</b> ✕ <b style={{ color: ACCENT[cardById(b).tier] }}>{cardById(b).name}</b>
+                <b style={{ color: ACCENT[cardById(a).tier] }}>{cardById(a).name}</b> × <b style={{ color: ACCENT[cardById(b).tier] }}>{cardById(b).name}</b>
               </li>
             );
           })}
@@ -391,7 +446,8 @@ function Notes({ sim }: { sim: SimSummary | null }) {
         <p>도전에서도 카드의 제시 조건을 확인합니다. 예를 들어 보호막을 얻을 방법이 없으면 「가시 갑옷」이 나오지 않습니다. 적의 증강 구성도 같은 규칙을 따릅니다.</p>
       </Section>
 
-      <Section n={3} title="규칙 변경: 언덕의 왕">
+      <Section n={3} title="규칙 변경">
+        <h3>언덕의 왕</h3>
         <div className="rule">
           <div>
             <div className="label">변경 전</div>
@@ -407,9 +463,28 @@ function Notes({ sim }: { sim: SimSummary | null }) {
           <li>중앙의 킹은 상대가 잡을 수 있는 마지막 기회입니다. 보호막(「왕관의 가호」)이 있으면 한 번은 버팁니다.</li>
           <li>킹 포획 규칙과 같은 원리입니다. 원래 언덕의 왕 변형에서 체크인 칸으로 들어갈 수 없는 것처럼, 이제 노려지는 언덕에 오르면 잡힙니다.</li>
           <li>
-            3막 보스 「{hillBoss.name}」: {hillBoss.blurb}
+            3막 보스 「{hillBoss.name}」의 고유 증강 중 왕관의 가호를 근위대로 바꿨습니다. {hillBoss.blurb}
           </li>
+          <li>AI도 새 규칙에 맞춰, 상대 기물이 많이 남은 중반에는 킹을 중앙으로 서둘러 내보내지 않습니다.</li>
         </ul>
+        <h3>퀸과 보호막</h3>
+        <div className="rule">
+          <div>
+            <div className="label">변경 전</div>
+            <p>보호막 카드가 퀸에게도 보호막을 씌웠습니다.</p>
+          </div>
+          <div className="to">▶</div>
+          <div>
+            <div className="label">변경 후</div>
+            <p>
+              <b>퀸은 카드로 보호막을 얻지 않습니다.</b> (보호막, 근위대, 신성한 가호, 부활의 성배, 보병의 투지)
+            </p>
+          </div>
+        </div>
+        <p>
+          보호막을 두른 퀸은 지켜진 기물을 잡아도 상대의 반격이 보호막에 막혀 그대로 살아남았습니다. 사실상 기물을 공짜로 빼앗는 셈이라, 측정해 보니 퀸에게 보호막을 씌우는 카드가 실버·골드·프리즘 세 등급 모두에서 1위였습니다.
+          다른 기물의 보호막은 그대로입니다.
+        </p>
       </Section>
 
       <Section n={4} title="증강 조정">
@@ -446,13 +521,36 @@ function Notes({ sim }: { sim: SimSummary | null }) {
       {sim ? (
         <Section n={7} title="개발 노트: 숫자로 본 이번 패치">
           <p>
-            AI(레벨 {sim.level})가 증강 하나만 들고, 아무 증강도 없는 같은 AI와 색을 바꿔 가며 카드마다 {sim.games}판씩 둔 결과입니다. 50%면 그 카드가 승부에 영향을 주지 않는다는 뜻이고, 높을수록
-            강합니다.
+            AI(레벨 {sim.level}) 두 명에게 증강을 쥐여 주고 색을 바꿔 가며 카드마다 {sim.games}판씩 둔 결과입니다. 승점은 이긴 판 1, 비긴 판 0.5로 셉니다. 판 수가 많지 않아 카드 하나하나의 숫자는 오차가
+            크므로, 여러 번의 측정에서 같은 방향으로 나온 결과만 패치에 반영했습니다.
           </p>
+          <h3>등급의 무게: 낮은 등급 카드가 높은 등급 카드를 상대로 낸 승점 ({sim.crossGames}판씩)</h3>
           <table className="grid">
             <thead>
               <tr>
-                <th>등급 평균 승점</th>
+                <th>대결</th>
+                <th>패치 전</th>
+                <th>패치 후</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sim.cross.map(([name, before, after]) => (
+                <tr key={name}>
+                  <td>{name}</td>
+                  <td>{pct(before)}</td>
+                  <td>{pct(after)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="small">
+            두 대결 모두 50%보다 분명히 낮아, 높은 등급은 여전히 더 강합니다. 실버와 골드의 차이가 조금 좁혀진 것은 약하던 실버 카드(측면 행군, 전술적 후퇴)를 끌어올리고 퀸의 보호막을 막은 결과입니다.
+          </p>
+          <h3>등급 안의 고른 정도: 같은 등급끼리 붙였을 때 승점의 표준편차</h3>
+          <table className="grid">
+            <thead>
+              <tr>
+                <th></th>
                 {TIERS.map((t) => (
                   <th key={t}>{TIER_NAME[t]}</th>
                 ))}
@@ -462,21 +560,23 @@ function Notes({ sim }: { sim: SimSummary | null }) {
               <tr>
                 <td>패치 전</td>
                 {TIERS.map((t) => (
-                  <td key={t}>{pct(sim.before[t])}</td>
+                  <td key={t}>{sim.spread[t][0].toFixed(2)}</td>
                 ))}
               </tr>
               <tr>
                 <td>패치 후</td>
                 {TIERS.map((t) => (
-                  <td key={t}>{pct(sim.after[t])}</td>
+                  <td key={t}>{sim.spread[t][1].toFixed(2)}</td>
                 ))}
               </tr>
             </tbody>
           </table>
+          <p className="small">낮을수록 같은 등급의 카드들이 비슷한 힘을 가집니다. 한 제시의 세 장이 모두 같은 등급이 된 만큼, 이 숫자가 곧 "고를 맛"입니다.</p>
+          <h3>눈여겨볼 카드와 조합: 증강이 없는 상대에게 낸 승점</h3>
           <table className="grid">
             <thead>
               <tr>
-                <th>문제의 조합</th>
+                <th>증강</th>
                 <th>패치 전</th>
                 <th>패치 후</th>
               </tr>
@@ -486,7 +586,7 @@ function Notes({ sim }: { sim: SimSummary | null }) {
                 <tr key={name}>
                   <td>{name}</td>
                   <td>{pct(before)}</td>
-                  <td>{pct(after)}</td>
+                  <td>{after < 0 ? '함께 가질 수 없음' : pct(after)}</td>
                 </tr>
               ))}
             </tbody>

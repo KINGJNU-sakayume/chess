@@ -61,6 +61,7 @@ export function kindNotes(pos: Position, color: Color, kind: number): string[] {
     if (r.promoRank < 7) out.push(`${color === WHITE ? r.promoRank + 1 : 8 - r.promoRank}번째 줄에서 승진`);
     if (r.breakthrough) out.push('승진하면 승리(돌파)');
   }
+  if (r.shieldSpentOnCapture && kind !== QUEEN) out.push('잡으면 보호막이 사라짐(신성한 가호)');
   return out;
 }
 

@@ -34,6 +34,8 @@ export interface SideRules {
   pawnOath: boolean;
   /** When one of these shields stops a capture, the attacker (not a King) is frozen. */
   thornShield: boolean;
+  /** A shielded piece of this side that captures loses its shield. */
+  shieldSpentOnCapture: boolean;
   /** Win when the King still stands on d4, e4, d5 or e5 after the opponent's turn. */
   kingOfTheHill: boolean;
   /** Win by checking the enemy King three times. */
@@ -57,6 +59,7 @@ export const BASE_RULES: Readonly<SideRules> = {
   knightOath: false,
   pawnOath: false,
   thornShield: false,
+  shieldSpentOnCapture: false,
   kingOfTheHill: false,
   threeCheck: false,
   breakthrough: false,

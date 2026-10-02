@@ -132,8 +132,8 @@ export const BOSSES: Readonly<Record<number, BossDef[]>> = {
     {
       id: 'hill_king',
       name: '언덕의 왕',
-      blurb: '킹이 중앙 네 칸에 올라 한 턴을 버티면 승리합니다. 두 번째 여왕이 그 길을 열고, 왕관의 가호가 킹을 지킵니다.',
-      cards: ['king_of_the_hill', 'warrior_king', 'royal_aegis', 'second_queen', 'freeze'],
+      blurb: '킹이 중앙 네 칸에 올라 한 턴을 버티면 승리합니다. 두 번째 여왕이 그 길을 열고, 근위대가 킹의 곁을 지킵니다.',
+      cards: ['king_of_the_hill', 'warrior_king', 'royal_guard', 'second_queen', 'freeze'],
     },
   ],
 };

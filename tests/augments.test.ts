@@ -15,6 +15,7 @@ import {
   M_CAPTURE,
   PAWN,
   QUEEN,
+  ROOK,
   T_TRAP_W,
   T_WALL,
   WHITE,
@@ -275,7 +276,7 @@ describe('shields, traps, martyrs and walls', () => {
     expect(pos.flags[sq('d5')] & F_SHIELD).toBe(F_SHIELD);
   });
 
-  it('pawn grit shields a capturing pawn, even when it promotes', () => {
+  it('pawn grit shields a capturing pawn, even when it promotes (but never a queen)', () => {
     const pos = setup('4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1', ['pawn_grit']);
     play(pos, 'e4', 'd5');
     expect(pos.flags[sq('d5')] & F_SHIELD).toBe(F_SHIELD);
@@ -283,8 +284,11 @@ describe('shields, traps, martyrs and walls', () => {
     play(pos, 'e4', 'e5');
     expect(pos.flags[sq('e5')] & F_SHIELD).toBe(0);
     const promo = setup('3rk3/4P3/8/8/8/8/8/4K3 w - - 0 1', ['pawn_grit']);
-    play(promo, 'e7', 'd8', QUEEN);
+    play(promo, 'e7', 'd8', ROOK);
     expect(promo.flags[sq('d8')] & F_SHIELD).toBe(F_SHIELD);
+    promo.unmakeMove();
+    play(promo, 'e7', 'd8', QUEEN);
+    expect(promo.flags[sq('d8')] & F_SHIELD).toBe(0);
   });
 
   it('thorns freeze an attacker that bounces off a shield until its next turn is over', () => {
@@ -436,10 +440,11 @@ describe('active cards', () => {
     expect(cardById('shield_breaker').targets!(pos, WHITE)).toEqual([sq('c6')]);
     use(pos, 'shield_breaker', WHITE, 'c6');
     expect(pos.flags[sq('c6')] & F_SHIELD).toBe(0);
-    // Demotion: knights and bishops off the owner's back rank; a shield breaks first.
+    // Demotion: knights, bishops and rooks off the owner's back rank; a shield breaks first.
     const t = cardById('demote').targets!(pos, WHITE);
     expect(t).toEqual(expect.arrayContaining([sq('c6'), sq('e5')]));
     expect(t).not.toContain(sq('c8'));
+    expect(t).not.toContain(sq('a8'));
     pos.setFlags(sq('e5'), F_SHIELD);
     use(pos, 'demote', WHITE, 'e5');
     expect(pos.board[sq('e5')] & 15).toBe(KNIGHT);
@@ -457,18 +462,48 @@ describe('active cards', () => {
     expect(pos.moves().every((m) => [KING, PAWN].includes(pos.board[m & 63] & 15))).toBe(true);
   });
 
-  it('revival brings the piece back shielded', () => {
+  it('revival brings the piece back shielded, unless it is a queen', () => {
     const pos = Position.fromFen('4k3/8/8/8/8/8/8/4K3 w - - 0 1');
     pos.addLost(WHITE, QUEEN);
+    pos.addLost(WHITE, ROOK);
     use(pos, 'revival', WHITE, 'd1');
     expect(pos.board[sq('d1')] & 15).toBe(QUEEN);
-    expect(pos.flags[sq('d1')] & (F_SHIELD | F_FROZEN)).toBe(F_SHIELD | F_FROZEN);
+    expect(pos.flags[sq('d1')] & (F_SHIELD | F_FROZEN)).toBe(F_FROZEN);
+    use(pos, 'revival', WHITE, 'a1');
+    expect(pos.board[sq('a1')] & 15).toBe(ROOK);
+    expect(pos.flags[sq('a1')] & (F_SHIELD | F_FROZEN)).toBe(F_SHIELD | F_FROZEN);
+  });
+
+  it('queens never take shields from cards', () => {
+    const pos = Position.fromFen(START_FEN);
+    expect(cardById('shield').targets!(pos, WHITE)).not.toContain(sq('d1'));
+    cardById('divine_aegis').onAcquire!(pos, BLACK);
+    for (const s of ['a8', 'b8', 'c8', 'f8']) expect(pos.flags[sq(s)] & F_SHIELD).toBe(F_SHIELD);
+    for (const s of ['d8', 'e8', 'a7']) expect(pos.flags[sq(s)] & F_SHIELD).toBe(0);
+  });
+
+  it('under the divine aegis a shield is spent by capturing, not by moving', () => {
+    const pos = setup('4k3/8/8/3p4/8/8/8/3RK3 w - - 0 1', ['divine_aegis']);
+    pos.setFlags(sq('d1'), F_SHIELD);
+    play(pos, 'd1', 'd3');
+    expect(pos.flags[sq('d3')] & F_SHIELD).toBe(F_SHIELD);
+    pos.unmakeMove();
+    play(pos, 'd1', 'd5');
+    expect(pos.flags[sq('d5')] & F_SHIELD).toBe(0);
+    pos.unmakeMove();
+    expect(pos.flags[sq('d1')] & F_SHIELD).toBe(F_SHIELD);
+    // Without the aegis a shielded raider keeps its shield.
+    const plain = setup('4k3/8/8/3p4/8/8/8/3RK3 w - - 0 1');
+    plain.setFlags(sq('d1'), F_SHIELD);
+    play(plain, 'd1', 'd5');
+    expect(plain.flags[sq('d5')] & F_SHIELD).toBe(F_SHIELD);
   });
 
   it('acquisition effects', () => {
     const pos = Position.fromFen(START_FEN);
     cardById('royal_guard').onAcquire!(pos, WHITE);
-    expect(pos.flags[sq('d1')] & F_SHIELD).toBe(F_SHIELD);
+    expect(pos.flags[sq('d1')] & F_SHIELD).toBe(0);
+    expect(pos.flags[sq('f1')] & F_SHIELD).toBe(F_SHIELD);
     expect(pos.flags[sq('e2')] & F_SHIELD).toBe(F_SHIELD);
     expect(pos.flags[sq('e1')] & F_SHIELD).toBe(0);
     cardById('royal_aegis').onAcquire!(pos, WHITE);

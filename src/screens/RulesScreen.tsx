@@ -84,7 +84,7 @@ export function RulesScreen() {
           </p>
         </div>
         <p>
-          <b className="text-arcane-300">보호막</b>: 기물이 제거될 때 한 번 대신 깨집니다. 보호막 기물을 잡으려던 기물은 제자리로 돌아갑니다.
+          <b className="text-arcane-300">보호막</b>: 기물이 제거될 때 한 번 대신 깨집니다. 보호막 기물을 잡으려던 기물은 제자리로 돌아갑니다. 퀸은 카드로 보호막을 얻지 않습니다.
         </p>
         <p>
           <b className="text-sky-200">동결</b>: 얼어붙은 기물은 주인의 다음 턴 동안 움직이거나 잡을 수 없습니다.

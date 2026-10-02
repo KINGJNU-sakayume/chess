@@ -18,6 +18,7 @@ import {
   M_WALL,
   PAWN,
   PROMOTION_KINDS,
+  QUEEN,
   ROOK,
   T_NONE,
   T_TRAP_B,
@@ -840,7 +841,8 @@ export class Position {
     this.setPiece(from, 0);
     const landed = promo ? promo | (us << 4) : mover;
     this.setPiece(to, landed);
-    if (moverFlags & F_SHIELD) this.setFlags(to, F_SHIELD);
+    // Divine aegis: a shield is for defence; a piece that captures gives it up.
+    if (moverFlags & F_SHIELD && !(victimKind && this.rules[us].shieldSpentOnCapture)) this.setFlags(to, F_SHIELD);
     if (moverKind === PAWN) half = 0;
 
     if (m & M_CASTLE) {
@@ -866,7 +868,7 @@ export class Position {
     if (
       alive &&
       victimKind &&
-      (((landed & 15) === KNIGHT && this.rules[us].knightOath) || (moverKind === PAWN && this.rules[us].pawnOath))
+      (((landed & 15) === KNIGHT && this.rules[us].knightOath) || (moverKind === PAWN && (landed & 15) !== QUEEN && this.rules[us].pawnOath))
     ) {
       this.setFlags(to, this.flags[to] | F_SHIELD);
     }
