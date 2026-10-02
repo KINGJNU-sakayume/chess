@@ -62,5 +62,5 @@ most taken upgrades. Every row replays exactly from its seed. Tuning lives in da
 ## Deployment
 
 `.github/workflows/ci.yml` runs install → lint → typecheck → test → build on every push, and deploys `dist/` to
-GitHub Pages on pushes to the default branch. Enable Pages once in **Settings → Pages → Source: GitHub Actions**.
+GitHub Pages on pushes to `main`. Enable Pages once in **Settings → Pages → Source: GitHub Actions**.
 The Vite `base` is derived from the repository name in CI (`VITE_BASE`), defaulting to `/chess/`.
