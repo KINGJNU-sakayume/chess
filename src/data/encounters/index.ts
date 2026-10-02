@@ -253,7 +253,108 @@ const lastStand: EncounterTemplate = {
   },
 };
 
-export const TEMPLATES: EncounterTemplate[] = [skirmish, fortress, hunt, lastStand];
+// ---------------------------------------------------------------------------
+// PROMOTION RACE — Pawn Race
+// ---------------------------------------------------------------------------
+
+const pawnRace: EncounterTemplate = {
+  id: 'pawn_race',
+  name: 'Pawn Race',
+  objective: 'PROMOTION_RACE',
+  blurb: 'Promote before the enemy does.',
+  acts: [1, 2, 3],
+  weight: 2,
+  generate(ctx) {
+    const P = new Placer(ctx);
+    const pawns = [0, 3, 4, ctx.rng.range(4, 5)][ctx.act];
+    const files = ctx.rng.shuffle([0, 1, 2, 3, 4, 5, 6, 7]).slice(0, pawns);
+    for (const f of files) P.put('pawn', sqOf(f, ctx.rng.chance(0.65) ? 6 : 5));
+    const blockers: PieceType[] = [[], ['knight', 'bishop'], ['knight', 'bishop', 'rook'], ['knight', 'bishop', 'rook', 'rook']][ctx.act] as PieceType[];
+    for (const t of blockers) P.putIn(t, P.region([0, 7], [Math.max(3, ctx.deploymentTop + 2), 6]));
+    if (ctx.rng.chance(actTuning(ctx.act).terrainChance * 0.5)) P.scatterRubble(2);
+    const countdown = [0, 8, 8, 9][ctx.act];
+    return {
+      name: 'Pawn Race',
+      objective: { type: 'PROMOTION_RACE', required: 1, countdown },
+      turnLimit: countdown,
+      enemyActions: baseActions(ctx),
+      profile: { kind: 'race_promotion' },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [],
+    };
+  },
+  safe(ctx) {
+    const P = new Placer(ctx);
+    for (const s of ['b7', 'e7', 'g7']) P.put('pawn', parseSq(s));
+    P.put('knight', parseSq('d6'));
+    return {
+      name: 'Pawn Race',
+      objective: { type: 'PROMOTION_RACE', required: 1, countdown: 9 },
+      turnLimit: 9,
+      enemyActions: actTuning(ctx.act).enemyActions[0],
+      profile: { kind: 'race_promotion' },
+      enemies: P.enemies,
+      terrain: [],
+      waves: [],
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// ESCAPE — Breakout
+// ---------------------------------------------------------------------------
+
+const breakout: EncounterTemplate = {
+  id: 'breakout',
+  name: 'Breakout',
+  objective: 'ESCAPE',
+  blurb: 'Get the marked piece to an exit square.',
+  acts: [1, 2, 3],
+  weight: 2,
+  generate(ctx) {
+    const P = new Placer(ctx);
+    const exitFiles = ctx.rng.shuffle([1, 2, 3, 4, 5, 6]).slice(0, ctx.act >= 3 ? 2 : 3);
+    const exits = exitFiles.map((f) => sqOf(f, 7));
+    for (const sq of exits) P.used.add(sq);
+    const pawns = [0, ctx.rng.range(2, 3), ctx.rng.range(3, 4), 4][ctx.act];
+    for (let i = 0; i < pawns; i++) P.putIn('pawn', P.region([0, 7], [4, 6]));
+    const hunters: PieceType[] = [[], ['knight', 'bishop'], ['knight', 'bishop', 'rook'], ['knight', 'knight', 'bishop', 'rook', 'queen']][ctx.act] as PieceType[];
+    for (const t of hunters) P.putIn(t, P.region([0, 7], [5, 7]));
+    if (ctx.rng.chance(actTuning(ctx.act).terrainChance)) P.scatterRubble(ctx.rng.range(2, 3));
+    return {
+      name: 'Breakout',
+      objective: { type: 'ESCAPE', squares: exits },
+      turnLimit: turnLimitFor(ctx, actTuning(ctx.act).turnLimit),
+      enemyActions: baseActions(ctx),
+      profile: { kind: 'hunter', target: 'escapee' },
+      enemies: P.enemies,
+      terrain: P.terrain,
+      waves: [],
+      designate: { prefer: ['knight', 'bishop', 'rook', 'queen', 'pawn'], tag: 'escapee' },
+    };
+  },
+  safe(ctx) {
+    const P = new Placer(ctx);
+    const exits = [parseSq('b8'), parseSq('e8'), parseSq('g8')];
+    for (const sq of exits) P.used.add(sq);
+    for (const s of ['c6', 'f6']) P.put('pawn', parseSq(s));
+    P.put('knight', parseSq('d7'));
+    return {
+      name: 'Breakout',
+      objective: { type: 'ESCAPE', squares: exits },
+      turnLimit: actTuning(ctx.act).turnLimit[1] + 1,
+      enemyActions: actTuning(ctx.act).enemyActions[0],
+      profile: { kind: 'hunter', target: 'escapee' },
+      enemies: P.enemies,
+      terrain: [],
+      waves: [],
+      designate: { prefer: ['knight', 'bishop', 'rook', 'queen', 'pawn'], tag: 'escapee' },
+    };
+  },
+};
+
+export const TEMPLATES: EncounterTemplate[] = [skirmish, fortress, hunt, lastStand, pawnRace, breakout];
 
 export function templateById(id: string): EncounterTemplate {
   const t = TEMPLATES.find((x) => x.id === id);

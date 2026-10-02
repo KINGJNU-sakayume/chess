@@ -30,7 +30,7 @@ function dotFor(m: Move): MoveDot {
   return 'move';
 }
 
-function PieceBadges({ p, intentIndex }: { p: Piece; intentIndex: number | null }) {
+function PieceBadges({ p, intentIndex, intentCount }: { p: Piece; intentIndex: number | null; intentCount: number }) {
   const temp = p.tempWards.reduce((n, w) => n + w.count, 0);
   const wards = p.wards + temp;
   const immobilized = p.statuses.some((s) => s.type === 'IMMOBILIZED');
@@ -73,8 +73,24 @@ function PieceBadges({ p, intentIndex }: { p: Piece; intentIndex: number | null 
         </svg>
       ) : null}
       {intentIndex !== null ? (
-        <div className="absolute right-[2%] top-[2%] flex h-[28%] w-[28%] items-center justify-center rounded-full bg-blood-500 text-[clamp(8px,1.3vmin,12px)] font-bold text-white shadow ring-2 ring-black/40">
-          {intentIndex + 1}
+        <div className="absolute right-[2%] top-[2%] flex h-[28%] min-w-[28%] items-center justify-center rounded-full bg-blood-500 px-[3%] text-[clamp(8px,1.3vmin,12px)] font-bold text-white shadow ring-2 ring-black/40">
+          {intentCount > 1 ? `${intentIndex + 1}–${intentIndex + intentCount}` : intentIndex + 1}
+        </div>
+      ) : null}
+      {p.counters.besieged ? (
+        <div
+          title="Besieged: a Rook will bombard this piece at the start of your next turn"
+          className="absolute bottom-[2%] right-[2%] flex h-[30%] w-[30%] items-center justify-center rounded-sm bg-amber-500/90 text-[clamp(8px,1.2vmin,11px)] font-black text-ink-950 ring-2 ring-black/40"
+        >
+          ⌖
+        </div>
+      ) : null}
+      {p.counters.gambit ? (
+        <div
+          title={`Queen's Gambit: next move pierces ${p.counters.gambit}`}
+          className="absolute bottom-[2%] right-[2%] flex h-[28%] min-w-[28%] items-center justify-center rounded-full bg-violet-500/90 px-[3%] text-[clamp(8px,1.2vmin,11px)] font-bold text-white ring-2 ring-black/40"
+        >
+          ⇶{p.counters.gambit}
         </div>
       ) : null}
     </>
@@ -86,14 +102,18 @@ export function BoardView(props: BoardViewProps) {
 
   const pieces: BoardPieceView[] = useMemo(() => {
     const intentIdx = new Map<string, number>();
-    previews.forEach((p) => intentIdx.set(p.intent.pieceId, p.index));
+    const intentCount = new Map<string, number>();
+    previews.forEach((p) => {
+      if (!intentIdx.has(p.intent.pieceId)) intentIdx.set(p.intent.pieceId, p.index);
+      intentCount.set(p.intent.pieceId, (intentCount.get(p.intent.pieceId) ?? 0) + 1);
+    });
     return Object.values(state.pieces).map((p) => ({
       id: p.id,
       type: p.type,
       side: p.side,
       sq: p.sq,
       underlay: p.side === 'player' ? pieceAura(state, p) : null,
-      overlay: <PieceBadges p={p} intentIndex={intentIdx.get(p.id) ?? null} />,
+      overlay: <PieceBadges p={p} intentIndex={intentIdx.get(p.id) ?? null} intentCount={intentCount.get(p.id) ?? 0} />,
     }));
   }, [state, previews]);
 
@@ -147,9 +167,24 @@ export function BoardView(props: BoardViewProps) {
       get(lastMove.to).tone = 'last';
     }
     for (const sq of highlight) get(sq).tone = 'hover';
-    // Intent destinations.
+    // Intent destinations. Chained routes (bosses) also number each stop, matching the intent list.
+    const routeLength = new Map<string, number>();
+    for (const p of previews) routeLength.set(p.intent.pieceId, (routeLength.get(p.intent.pieceId) ?? 0) + 1);
     for (const p of previews) {
       const v = get(p.intent.to);
+      if ((routeLength.get(p.intent.pieceId) ?? 0) > 1) {
+        v.top = (
+          <>
+            {v.top}
+            <div
+              key={`step${p.index}`}
+              className={`absolute bottom-[3%] right-[3%] flex h-[26%] w-[26%] items-center justify-center rounded-full text-[clamp(8px,1.3vmin,12px)] font-bold text-white shadow ring-2 ring-black/40 ${p.willLand ? 'bg-blood-500' : 'bg-ink-500/80 line-through'}`}
+            >
+              {p.index + 1}
+            </div>
+          </>
+        );
+      }
       if (p.willLand) {
         v.top = (
           <>

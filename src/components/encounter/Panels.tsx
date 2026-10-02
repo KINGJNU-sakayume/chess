@@ -5,6 +5,8 @@ import type { ActionToken, EncounterState, LogEntry, ReserveEntry } from '../../
 import { intentText, type IntentPreview } from '../../engine/enemy/preview';
 import type { PieceInspection } from '../../engine/inspect';
 import { objectiveSummary, targetsRemaining } from '../../engine/encounters/objectives';
+import { BOSSES } from '../../data/bosses';
+import { affixDef } from '../../engine/rules/registry';
 import { PieceSvg } from '../board/PieceSvg';
 
 export function PanelTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
@@ -47,11 +49,16 @@ export function ObjectiveCard({ state }: { state: EncounterState }) {
           <span className="font-bold text-blood-300">{state.objective.countdown}</span>
         </p>
       ) : null}
-      {state.config.affixes.length ? (
+      {state.config.bossId && BOSSES[state.config.bossId] ? (
+        <div className="mt-2 rounded-lg border border-gold-500/40 bg-gold-500/10 p-2 text-xs text-gold-300">
+          <span className="font-display">{BOSSES[state.config.bossId].name}</span> — {BOSSES[state.config.bossId].description}
+        </div>
+      ) : null}
+      {state.rules.affixes.length ? (
         <div className="mt-2 flex flex-wrap gap-1">
-          {state.config.affixes.map((a) => (
-            <span key={a} className="rounded bg-blood-600/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-blood-300">
-              {a.replace(/_/g, ' ')}
+          {state.rules.affixes.map((a) => (
+            <span key={a} title={affixDef(a).description} className="rounded bg-blood-600/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-blood-300">
+              {affixDef(a).name}
             </span>
           ))}
         </div>

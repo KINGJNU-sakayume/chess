@@ -19,6 +19,23 @@ export const MIGRATIONS: Record<number, Migration> = {
     const run = (data.run ?? {}) as Record<string, unknown>;
     return { ...data, schema: 1, run: { ...run, curses: run.curses ?? [], rank4: run.rank4 ?? [], schema: 1 } };
   },
+  // Schema 2 (M5) tracks fizzles, immobilizations and Ward blocks per run and per encounter.
+  1: (data) => {
+    const run = (data.run ?? {}) as Record<string, unknown>;
+    const stats = (run.stats ?? {}) as Record<string, unknown>;
+    const encounter = run.encounter as Record<string, unknown> | null | undefined;
+    const encStats = (encounter?.stats ?? {}) as Record<string, unknown>;
+    return {
+      ...data,
+      schema: 2,
+      run: {
+        ...run,
+        schema: 2,
+        stats: { ...stats, fizzles: stats.fizzles ?? 0, immobilizations: stats.immobilizations ?? 0, wardsBlocked: stats.wardsBlocked ?? 0 },
+        encounter: encounter ? { ...encounter, stats: { ...encStats, immobilizations: encStats.immobilizations ?? 0 } } : (encounter ?? null),
+      },
+    };
+  },
 };
 
 export function serializeRun(run: RunState, now = new Date()): string {

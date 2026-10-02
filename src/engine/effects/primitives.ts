@@ -53,6 +53,7 @@ export function immobilize(r: Resolver, pieceId: string, phases: number, source:
   // Never shorten an existing immobilization.
   const keep = existing && existing.expires.turn >= expires.turn ? existing : { type: 'IMMOBILIZED' as const, expires, source };
   patchPiece(r.d, pieceId, { statuses: [...others, keep] });
+  if (p.side === 'enemy') r.d.stats.immobilizations += 1;
 }
 
 // --- MARK_SQUARE ----------------------------------------------------------

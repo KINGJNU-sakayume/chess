@@ -1,7 +1,10 @@
-import { between, chebyshev, rankOf, type Sq } from '../core/coords';
+import { between, chebyshev, fileOf, rankOf, sqOf, type Sq } from '../core/coords';
 import { PIECE_VALUE, type PieceType } from '../core/pieces';
 import type { EncounterState, Intent, Piece } from '../core/state';
+import { totalWards } from '../core/draft';
 import { makeHypo, mutableCopy, retarget, unmakeHypo } from '../moves/hypo';
+import { openBoardDistance } from '../moves/distance';
+import { previewIntents, projectIntents } from '../enemy/preview';
 import { compileRules } from '../rules/compile';
 import { affordableMoves, createGenContext, pieceAttacks, pieceMoves, type GenContext, type Move } from '../moves/generate';
 import type { Rng } from '../rng/rng';
@@ -29,6 +32,10 @@ interface DecisionInfo {
   intentSquares: Set<Sq>[];
   /** Current preview: would each intent land right now? */
   intentLands: boolean[];
+  /** The intent's capture would be blocked by a Ward (the victim only loses the Ward). */
+  intentWarded: boolean[];
+  /** Intents that would promote an enemy Pawn. */
+  promotingIntents: boolean[];
   enemyKing: Piece | undefined;
   playerKing: Piece | undefined;
   targets: Piece[];
@@ -55,10 +62,16 @@ function info(state: EncounterState, ctx: GenContext): DecisionInfo {
     if (path) for (const sq of path) set.add(sq);
     return set;
   });
-  const intentLands = state.intents.map((i) => !!state.pieces[i.pieceId] && pieceMoves(ctx, i.pieceId).some((m) => m.to === i.to));
+  const preview = previewIntents(state);
+  const intentLands = preview.map((p) => p.willLand);
+  const intentWarded = preview.map((p) => p.blockedByWard);
+  const promoRank = ctx.rules.promotionRankEnemy;
+  const promotingIntents = state.intents.map((i) => i.pieceType === 'pawn' && (i.to >> 3) <= promoRank);
   return {
     intentSquares,
     intentLands,
+    intentWarded,
+    promotingIntents,
     enemyKing: pieces.find((p) => p.side === 'enemy' && p.type === 'king'),
     playerKing: pieces.find((p) => p.side === 'player' && p.type === 'king'),
     targets: pieces.filter((p) => p.tags.includes('target')),
@@ -86,49 +99,63 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
   const obj = state.config.objective.type;
   const mover = state.pieces[m.pieceId];
   const target = m.captureId ? state.pieces[m.captureId] : undefined;
+  // A Ward blocks the capture (B1): the Ward is spent and the mover stays where it is.
+  const blocked = !!target && totalWards(target) > 0;
+  const dest = blocked ? m.from : m.to;
   let s = 0;
 
   // Immediate objective completion.
-  if (target?.type === 'king' && obj === 'ASSASSINATION') return 1e6;
-  if (target?.tags.includes('target') && inf.targets.length === 1 && obj === 'ELIMINATION') return 1e6;
+  if (!blocked) {
+    if (target?.type === 'king' && obj === 'ASSASSINATION') return 1e6;
+    if (target?.tags.includes('target') && inf.targets.length === 1 && obj === 'ELIMINATION') return 1e6;
+  }
   if (obj === 'ESCAPE' && mover.tags.includes('escapee') && inf.exits.includes(m.to)) return 1e6;
   if (obj === 'PROMOTION_RACE' && m.promotion && state.objective.promotions + 1 >= (state.config.objective.required ?? 1)) return 1e6;
 
   if (target) {
-    const wards = target.wards + target.tempWards.reduce((n, w) => n + w.count, 0);
     let v = (target.type === 'king' ? 30 : V(target.type)) * 10;
     if (target.tags.includes('target')) v += 45;
-    if (wards > 0) v *= 0.4;
+    // Stripping a Ward is progress, but only a fraction of a capture.
+    if (blocked) v *= 0.4;
     s += v;
   }
   if (m.rubble) s += 2;
-  if (m.promotion) s += m.promotion === 'queen' ? 70 : 30;
+  if (m.promotion && !blocked) s += m.promotion === 'queen' ? 70 : 30;
+  const runnerBefore = obj === 'PROMOTION_RACE' ? runnerValue(h, ctx.rules.promotionRankPlayer) : 0;
 
-  const u = makeHypo(h, m);
+  const u = makeHypo(h, m, { wards: true });
   const hctx = retarget(ctx, h);
 
   // Committed intents: dodge, block, bait, capture the intending piece.
+  const touchesAny = inf.intents.some(
+    (intent, i) => inf.intentSquares[i].has(m.from) || inf.intentSquares[i].has(m.to) || m.captureId === intent.pieceId,
+  );
+  // Re-simulate in order when the move interferes: a boss's chained intents start where the previous one ends.
+  const landsNow = touchesAny ? previewIntents(h).map((p) => p.willLand) : inf.intentLands;
   const landsAfter = inf.intents.map((intent, i) => {
     const victim = inf.victims[i];
-    const victimValue = victim ? (victim.type === 'king' ? 400 : V(victim.type) * 9) : 0;
-    const touches = inf.intentSquares[i].has(m.from) || inf.intentSquares[i].has(m.to) || m.captureId === intent.pieceId;
-    const lands = !touches
-      ? inf.intentLands[i]
-      : !!h.pieces[intent.pieceId] && pieceMoves(hctx, intent.pieceId).some((mv) => mv.to === intent.to);
+    const victimValue = victim ? (victim.type === 'king' ? 400 : V(victim.type) * 9) * (inf.intentWarded[i] ? 0.25 : 1) : 0;
+    const lands = landsNow[i];
     if (victim && !lands) s += victimValue;
-    if (victim && lands && victim.id === m.pieceId) s += victimValue; // moved away; landing on empty square
-    if (lands && m.to === intent.to) s -= mover.type === 'king' ? 5000 : V(mover.type) * 9;
+    if (victim && lands && victim.id === m.pieceId && !blocked) s += victimValue; // moved away; landing on empty square
+    if (lands && m.to === intent.to && !blocked) s -= mover.type === 'king' ? 5000 : V(mover.type) * 9;
+    // Promotion race: an enemy Pawn about to promote loses the encounter — stop it at almost any cost.
+    if (obj === 'PROMOTION_RACE' && inf.promotingIntents[i] && !lands) s += 900;
     return lands;
   });
   // Where will the objective pieces stand after the enemy phase? (Read their intents.)
   const predicted = (p: Piece): Sq => {
-    const i = inf.intents.findIndex((x) => x.pieceId === p.id);
-    return i >= 0 && landsAfter[i] ? inf.intents[i].to : p.sq;
+    // The last landing intent of the piece is where it will stand (bosses chain several).
+    let sq = p.sq;
+    inf.intents.forEach((x, i) => {
+      if (x.pieceId === p.id && landsAfter[i]) sq = x.to;
+    });
+    return sq;
   };
 
   // General safety: avoid squares the enemy already attacks.
-  if (inf.enemyAttacks[m.to] && mover.type !== 'king') s -= V(mover.type) * (opts.careful ? 3 : 2);
-  if (mover.type === 'king' && inf.enemyAttacks[m.to]) s -= 60;
+  if (inf.enemyAttacks[dest] && mover.type !== 'king') s -= V(mover.type) * (opts.careful ? 3 : 2);
+  if (mover.type === 'king' && inf.enemyAttacks[dest]) s -= 60;
 
   // Objective progress.
   switch (obj) {
@@ -138,8 +165,8 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
       if (k) {
         const goal = predicted(k);
         if (mover.type !== 'king') {
-          if (attacksSquare(hctx, m.pieceId, goal)) s += inf.enemyAttacks[m.to] ? 60 : 140;
-          s += (chebyshev(m.from, goal) - chebyshev(m.to, goal)) * (mover.type === 'pawn' ? 1 : 3);
+          if (attacksSquare(hctx, m.pieceId, goal)) s += inf.enemyAttacks[dest] ? 60 : 140;
+          s += (chebyshev(m.from, goal) - chebyshev(dest, goal)) * (mover.type === 'pawn' ? 1 : 3);
         }
       }
       break;
@@ -147,7 +174,7 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
     case 'ELIMINATION': {
       if (inf.targets.length && mover.type !== 'king') {
         const near = (sq: Sq) => Math.min(...inf.targets.filter((t) => t.id !== m.captureId).map((t) => chebyshev(sq, predicted(t))), 9);
-        s += (near(m.from) - near(m.to)) * 3;
+        s += (near(m.from) - near(dest)) * 3;
         for (const t of inf.targets) if (t.id !== m.captureId && attacksSquare(hctx, m.pieceId, predicted(t))) s += 35;
       }
       break;
@@ -155,13 +182,18 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
     case 'ESCAPE': {
       const e = inf.escapee;
       if (e && inf.exits.length) {
-        const dist = (sq: Sq) => Math.min(...inf.exits.map((x) => chebyshev(sq, x)));
-        if (m.pieceId === e.id) s += (dist(m.from) - dist(m.to)) * 12;
+        // Real move distance for the escapee's piece type (a Knight next to an exit is not "close").
+        const dist = (sq: Sq) => Math.min(...inf.exits.map((x) => openBoardDistance(e.type, sq, x)));
+        if (m.pieceId === e.id) s += (Math.min(9, dist(m.from)) - Math.min(9, dist(dest))) * 12;
       }
       break;
     }
     case 'PROMOTION_RACE':
-      if (mover.type === 'pawn') s += (rankOf(m.to) - rankOf(m.from)) * 9 + rankOf(m.to);
+      // Back one runner: progress of the best-placed Pawn (or clearing its file) is what wins races.
+      s += (runnerValue(h, ctx.rules.promotionRankPlayer) - runnerBefore) * 3;
+      if (mover.type === 'pawn') s += (rankOf(dest) - rankOf(m.from)) * 2;
+      // Advanced enemy Pawns are the real threat: capturing them is worth more the closer they are.
+      if (target?.type === 'pawn' && target.side === 'enemy') s += (7 - rankOf(target.sq)) * 12;
       break;
     case 'SURVIVAL':
     case 'DEFENSE':
@@ -176,6 +208,26 @@ function scoreMove(state: EncounterState, ctx: GenContext, m: Move, inf: Decisio
   if (mover.type === 'king' && obj !== 'SURVIVAL') s -= 4;
   s += opts.rng.float() * opts.noise;
   return s;
+}
+
+/**
+ * Promotion race: how promising the best player Pawn's run is. Each step left
+ * halves the value; anything standing on the Pawn's file counts as three
+ * extra steps (it must be captured, dodged or waited out).
+ */
+function runnerValue(h: EncounterState, promoRank: number): number {
+  let best = 0;
+  for (const id in h.pieces) {
+    const p = h.pieces[id];
+    if (p.side !== 'player' || p.type !== 'pawn') continue;
+    let steps = Math.max(0, promoRank - rankOf(p.sq));
+    for (let r = rankOf(p.sq) + 1; r <= promoRank; r++) {
+      const sq = sqOf(fileOf(p.sq), r);
+      if (h.board[sq] || h.terrain[sq]) steps += 3;
+    }
+    best = Math.max(best, 2 ** (6 - Math.min(6, steps)));
+  }
+  return best;
 }
 
 /** Base-pattern attack test (ignores upgrades): would a `type` on `from` attack `to` on this board? */
@@ -231,8 +283,11 @@ function threatPotential(h: EncounterState, ctx: GenContext, goals: Sq[]): numbe
 
 function goalSquares(state: EncounterState, inf: DecisionInfo): Sq[] {
   const predicted = (p: Piece): Sq => {
-    const i = inf.intents.findIndex((x) => x.pieceId === p.id);
-    return i >= 0 && inf.intentLands[i] ? inf.intents[i].to : p.sq;
+    let sq = p.sq;
+    inf.intents.forEach((x, i) => {
+      if (x.pieceId === p.id && inf.intentLands[i]) sq = x.to;
+    });
+    return sq;
   };
   switch (state.config.objective.type) {
     case 'ASSASSINATION':
@@ -243,6 +298,33 @@ function goalSquares(state: EncounterState, inf: DecisionInfo): Sq[] {
     default:
       return [];
   }
+}
+
+/**
+ * One ply beyond the committed intents: once they resolve, will the enemy be
+ * attacking the player's King (and can it step away)? The next plan will
+ * certainly go for it.
+ */
+function kingDanger(state: EncounterState): number {
+  const proj = projectIntents(state);
+  let king: Piece | undefined;
+  for (const id in proj.pieces) {
+    const p = proj.pieces[id];
+    if (p.side === 'player' && p.type === 'king') king = p;
+  }
+  if (!king) return 0; // captured outright: the intent valuation already counts it
+  const ctx = createGenContext(proj);
+  const attacked = new Uint8Array(64);
+  for (const id in proj.pieces) {
+    if (proj.pieces[id].side === 'enemy') {
+      pieceAttacks(ctx, id, (sq) => {
+        attacked[sq] = 1;
+      });
+    }
+  }
+  if (!attacked[king.sq]) return 0;
+  const escapes = pieceMoves(ctx, king.id).filter((m) => !attacked[m.to] && !m.captureId).length;
+  return escapes > 0 ? 25 : 220;
 }
 
 const affinityCache = new WeakMap<object, Partial<Record<PieceType, number>>>();
@@ -299,13 +381,13 @@ export function chooseAction(state: EncounterState, opts: PolicyOptions): { acti
     scored.sort((a, b) => b.score - a.score);
     for (const c of scored.slice(0, 8)) {
       if (favoured.length) {
-        const u = makeHypo(h, c.move);
+        const u = makeHypo(h, c.move, { wards: true });
         c.score += 0.8 * (mobility(h, retarget(ctx, h)) - mobilityBefore);
         unmakeHypo(h, u);
       }
       if (c.score >= 1e5) continue;
       if (goals.length) {
-        const u = makeHypo(h, c.move);
+        const u = makeHypo(h, c.move, { wards: true });
         c.score += 3 * threatPotential(h, retarget(ctx, h), goals);
         unmakeHypo(h, u);
       }
@@ -321,6 +403,7 @@ export function chooseAction(state: EncounterState, opts: PolicyOptions): { acti
       const immobilized = Object.values(after.pieces).filter((p) => p.side === 'enemy' && p.statuses.length > 0).length;
       const immobilizedBefore = Object.values(state.pieces).filter((p) => p.side === 'enemy' && p.statuses.length > 0).length;
       c.score += 5 * Math.max(0, immobilized - immobilizedBefore);
+      if (!after.outcome) c.score -= kingDanger(after);
     }
   }
   let best: Move | null = null;

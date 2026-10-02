@@ -1,5 +1,6 @@
 import { fileOf, rankOf, sqOf, type Sq } from '../core/coords';
 import type { PieceType } from '../core/pieces';
+import type { EncounterState } from '../core/state';
 import { chooseAction } from '../encounters/policy';
 import { upgradeDef } from '../rules/registry';
 import type { UpgradeDef } from '../rules/types';
@@ -132,7 +133,14 @@ function pendingAction(run: RunState, policy: PickPolicy): RunAction {
   }
 }
 
-export function simulateRun(seed: string, policy: PickPolicy, opts: { maxActs?: number; maxSteps?: number } = {}): SimResult {
+export interface SimOptions {
+  maxActs?: number;
+  maxSteps?: number;
+  /** Observe every finished encounter (balance analysis). */
+  onEncounter?: (encounter: EncounterState, run: RunState) => void;
+}
+
+export function simulateRun(seed: string, policy: PickPolicy, opts: SimOptions = {}): SimResult {
   const maxActs = opts.maxActs ?? 3;
   const maxSteps = opts.maxSteps ?? 20000;
   let run = newRun(seed);
@@ -151,6 +159,7 @@ export function simulateRun(seed: string, policy: PickPolicy, opts: { maxActs?: 
       case 'encounter': {
         const enc = run.encounter!;
         if (enc.outcome) {
+          opts.onEncounter?.(enc, run);
           run = runReducer(run, { type: 'finishEncounter' });
           break;
         }

@@ -8,7 +8,7 @@ import type { RosterPiece } from './roster';
 
 /** Persistent run state (B7–B9, G1). Pure data: serializable as JSON. */
 
-export const RUN_SCHEMA_VERSION = 1;
+export const RUN_SCHEMA_VERSION = 2;
 
 export type NodeType = 'combat' | 'elite' | 'upgrade' | 'shop' | 'mutation' | 'recruit' | 'event' | 'sacrifice' | 'boss';
 
@@ -80,6 +80,9 @@ export interface RunStats {
   movesByType: Partial<Record<PieceType, number>>;
   extraActions: number;
   goldEarned: number;
+  fizzles: number;
+  immobilizations: number;
+  wardsBlocked: number;
 }
 
 export interface RunLogEntry {

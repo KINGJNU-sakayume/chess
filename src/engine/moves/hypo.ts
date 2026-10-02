@@ -1,4 +1,5 @@
 import { fileOf, type Sq } from '../core/coords';
+import { totalWards } from '../core/draft';
 import type { EncounterState, Piece } from '../core/state';
 import type { GenContext, Move } from './generate';
 
@@ -12,6 +13,8 @@ export interface HypoUndo {
   to: Sq;
   moverBefore: Piece;
   captured?: Piece;
+  /** A Ward blocked the capture: the target as it was before spending it (the mover stayed put). */
+  warded?: Piece;
   rook?: Piece;
   rookTo?: Sq;
 }
@@ -21,11 +24,32 @@ export function mutableCopy(state: EncounterState): EncounterState {
   return { ...state, board: state.board.slice(), pieces: { ...state.pieces } };
 }
 
-export function makeHypo(h: EncounterState, m: Move): HypoUndo {
+/** One Ward spent, temporary Wards first (mirrors `consumeWard`). */
+function spendWard(p: Piece): Piece {
+  if (p.tempWards.length > 0) {
+    const temp = p.tempWards.slice();
+    if (temp[0].count <= 1) temp.shift();
+    else temp[0] = { ...temp[0], count: temp[0].count - 1 };
+    return { ...p, tempWards: temp };
+  }
+  return { ...p, wards: p.wards - 1 };
+}
+
+/**
+ * Make `m` on the hypothetical board. With `wards`, a capture of a warded
+ * piece resolves as it really would (B1): the Ward is spent and the attacker
+ * stays on its square.
+ */
+export function makeHypo(h: EncounterState, m: Move, opts?: { wards?: boolean }): HypoUndo {
   const mover = h.pieces[m.pieceId];
   const u: HypoUndo = { pieceId: m.pieceId, from: m.from, to: m.to, moverBefore: mover };
   if (m.captureId && h.pieces[m.captureId]) {
     const c = h.pieces[m.captureId];
+    if (opts?.wards && totalWards(c) > 0) {
+      u.warded = c;
+      h.pieces[c.id] = spendWard(c);
+      return u;
+    }
     u.captured = c;
     if (h.board[c.sq] === c.id) h.board[c.sq] = null;
     delete h.pieces[c.id];
@@ -45,6 +69,10 @@ export function makeHypo(h: EncounterState, m: Move): HypoUndo {
 }
 
 export function unmakeHypo(h: EncounterState, u: HypoUndo): void {
+  if (u.warded) {
+    h.pieces[u.warded.id] = u.warded;
+    return;
+  }
   if (u.rook && u.rookTo !== undefined) {
     h.board[u.rookTo] = null;
     h.board[u.rook.sq] = u.rook.id;

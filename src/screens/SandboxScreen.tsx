@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { TEMPLATES } from '../data/encounters';
+import { BOSS_TEMPLATES } from '../data/bosses/templates';
 import { generateEncounter } from '../engine/encounters/generator';
 import { createEncounter } from '../engine/encounters/setup';
 import { standardRoster } from '../engine/run/roster';
@@ -33,7 +34,7 @@ export function SandboxScreen() {
     const gen = generateEncounter({
       seed,
       act,
-      kind,
+      kind: BOSS_TEMPLATES[templateId] ? 'boss' : kind,
       templateId,
       difficulty: 0.5,
       rules: { upgrades: ups, affixes: [] },
@@ -103,6 +104,11 @@ export function SandboxScreen() {
             {TEMPLATES.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name} — {t.objective.toLowerCase().replace('_', ' ')}
+              </option>
+            ))}
+            {Object.values(BOSS_TEMPLATES).map((t) => (
+              <option key={t.id} value={t.id}>
+                Boss: {t.name}
               </option>
             ))}
           </select>

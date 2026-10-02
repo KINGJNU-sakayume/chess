@@ -297,6 +297,7 @@ export interface EncounterStats {
   extraActionsGranted: number;
   wardsBlocked: number;
   fizzles: number;
+  immobilizations: number;
   piecesLost: number;
   deploys: number;
   triggers: number;

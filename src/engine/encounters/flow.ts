@@ -8,6 +8,7 @@ import { Resolver, type ResolveOptions } from '../rules/resolver';
 import { evaluateObjective } from './objectives';
 import { resolveMove } from './resolve';
 import { runBossHooks } from './bossHooks';
+import { BOSSES } from '../../data/bosses';
 
 /**
  * Turn structure (B2). Player Turn: onTurnStart → Reserve deployment → actions
@@ -194,13 +195,24 @@ export function runEnemyPhase(r: Resolver, n: number): void {
   r.drain();
   runBossHooks(r, 'phaseStart');
 
-  // 1. Intents execute one by one, in displayed order.
+  // 1. Intents execute one by one, in displayed order. A piece whose step
+  //    fails (fizzles, or is repelled by a Ward) abandons the rest of its route.
   const intents = d.intents.slice();
   d.intents = [];
+  const broken = new Set<string>();
   for (const intent of intents) {
     if (d.outcome) break;
     r.beginAction();
-    executeIntent(r, intent);
+    if (broken.has(intent.pieceId)) {
+      fizzle(r, intent, intentLabel(intent), 'route broken');
+    } else if (!executeIntent(r, intent)) {
+      broken.add(intent.pieceId);
+      const boss = d.config.bossId ? BOSSES[d.config.bossId] : undefined;
+      if (boss?.onStepFailed && d.pieces[intent.pieceId]) {
+        boss.onStepFailed(r, intent);
+        r.drain();
+      }
+    }
     r.frame();
   }
   if (d.outcome) return;
@@ -235,13 +247,16 @@ export function runEnemyPhase(r: Resolver, n: number): void {
   r.frame();
 }
 
-export function executeIntent(r: Resolver, intent: Intent): void {
+const intentLabel = (intent: Intent): string => `${PIECE_NAME[intent.pieceType]} ${sqName(intent.from)} → ${sqName(intent.to)}`;
+
+/** Execute one committed intent. Returns true if the piece arrived on the intended square. */
+export function executeIntent(r: Resolver, intent: Intent): boolean {
   const d = r.d;
   const reason = intentFizzleReason(d, intent);
-  const label = `${PIECE_NAME[intent.pieceType]} ${sqName(intent.from)} → ${sqName(intent.to)}`;
+  const label = intentLabel(intent);
   if (reason) {
     fizzle(r, intent, label, reason);
-    return;
+    return false;
   }
   const ctx = createGenContext(d);
   const m = pieceMoves(ctx, intent.pieceId).find((mv) => mv.to === intent.to);
@@ -249,9 +264,10 @@ export function executeIntent(r: Resolver, intent: Intent): void {
     const occ = d.board[intent.to];
     const why = occ && d.pieces[occ].side === 'enemy' ? 'destination occupied' : 'path blocked';
     fizzle(r, intent, label, why);
-    return;
+    return false;
   }
   resolveMove(r, m);
+  return d.pieces[intent.pieceId]?.sq === intent.to;
 }
 
 function fizzle(r: Resolver, intent: Intent, label: string, reason: string) {
@@ -327,7 +343,16 @@ export function intentCountFor(r: Resolver, phase: number): number {
 export function planNextIntents(r: Resolver, phase: number): void {
   const d = r.d;
   const count = intentCountFor(r, phase);
-  const planned = planIntents(d, count, { profile: d.config.profile, royalCurse: r.rules.royalCurse, objectiveType: d.config.objective.type }, d.rng);
+  const boss = d.config.bossId ? BOSSES[d.config.bossId] : undefined;
+  const multi = boss?.multiIntent;
+  const multiPiece = multi ? Object.values(d.pieces).find((p) => p.side === 'enemy' && p.tags.includes(multi.tag)) : undefined;
+  const planned = planIntents(
+    d,
+    count,
+    { profile: d.config.profile, royalCurse: r.rules.royalCurse, objectiveType: d.config.objective.type },
+    d.rng,
+    multi && multiPiece ? { pieceId: multiPiece.id, count: multi.ramp ? Math.min(multi.count, phase) : multi.count } : undefined,
+  );
   d.intents = planned.intents;
   d.rng = planned.rng;
   for (const intent of d.intents) {

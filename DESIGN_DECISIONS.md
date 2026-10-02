@@ -142,3 +142,64 @@ Development Rule ("does this increase the player's ability to create their own b
 - **Headless simulation.** `simulateRun` plays whole runs through the same reducer with a bot that reads intents
   (it targets where the enemy King is *going*), values the extra actions/Wards its build generates, and leans on the
   pieces its upgrades improve. It is the balance instrument for M4/M6 acceptance tests.
+
+## Full run content (M5)
+
+- **Upgrade roster (C1–C8).** 50 upgrades: Pawn 8, Bishop 9, Knight 5, Rook 5, Queen/King 5, board mutations 8,
+  starting position 5, enemy debuffs 5. Interpretations of the new ones:
+  - **Fork Engine** counts enemy pieces attacked from the landing square; the extra action is for a *non-Knight*
+    piece, so Knights cannot loop on their own forks.
+  - **Momentum Knight**: "moved on your previous turn" means the same Knight made at least one move during the
+    previous Player Turn. The follow-up is a free move by that Knight (stack 1: non-capturing; stack 2: may
+    capture), once per Knight per turn.
+  - **Landing Shock** immobilizes the (up to 8) enemy pieces adjacent to the landing square for the next N enemy
+    phases (N = stacks).
+  - **Royal Fork** fires when, after a Knight move, the Knight attacks the enemy King and at least one other enemy
+    piece; it captures the most valuable other attacked piece (ties: lowest square). The Knight does not move and
+    Ward rules apply.
+  - **Open File**: "no Pawns" means no Pawn of either side on the Rook's file; the pierce only applies to moves
+    along that file.
+  - **Rook Battery**: aligned = same rank or file with no piece or terrain between; the nearest aligned allied Rook
+    gains the actions, usable only by itself.
+  - **Siege Engine** counts, per (Rook, target) pair, consecutive *Player Turn ends* at which the Rook attacks the
+    target; at max(1, 3 − stacks) the target is *besieged* (badge) and the Rook captures it at the start of your
+    next turn if it still attacks it (the Rook stays; Ward rules apply).
+  - **Queen's Gambit** stores pierce charges on your Queens (+stacks per allied piece lost); a Queen's next move
+    may pierce that many pieces and spends all of her charges.
+  - **War King**'s range applies to all eight directions; its capture Ward is permanent. **Royal Guard** Wards
+    expire at the end of the enemy phase.
+  - **Tyrant Queen** (upgrade) counts your non-Pawn, non-King pieces on the board at turn start (Reserve
+    excluded).
+  - **Debuffs** use the encounter's RNG stream: Cracked Formation never removes a marked target; Delayed
+    Reinforcement never delays the King, a boss or a target and brings the piece back (with its tags and Wards)
+    in enemy phase 2, so it is on the board for Player Turn 3 (delayed further if its square is blocked). Slow
+    Command applies to bosses too. Heavy Queen also limits promoted and boss Queens.
+- **New encounter templates.** *Pawn Race* (PROMOTION_RACE) needs one promotion in every act; the countdown
+  equals the turn limit (8/8/9); 3/4/4–5 enemy Pawns start on ranks 6–7, screened by 2/3/4 pieces in Acts I/II/III. *Breakout*
+  (ESCAPE) designates the escapee by preference Knight > Bishop > Rook > Queen > Pawn; exits sit on rank 8
+  (three, two in Act III). The validator's reachability check for ESCAPE only measures the escapee, with real
+  move geometry (a Knight next to an exit is not "one move away").
+- **Chained intents.** A boss rule may give one piece several intents per phase. They are planned one after
+  another on the hypothetical board (so step 2 starts where step 1 ends) and previewed the same way. **A piece
+  whose step fails — fizzles, or is repelled by a Ward — abandons the rest of its route** ("route broken"),
+  instead of attempting later steps from the wrong square. This makes "block one step" a real answer and keeps
+  the preview honest.
+- **The Tyrant Queen** (Act II): the Queen's court hems her in (only the d-file is open, its Pawn already on d5),
+  so her opening routes are short and readable. Her route grows 1 → 2 → 3 steps over the first three turns,
+  then stays at 3; the court shares one intent. She starts with **2 Wards and loses one every time her route
+  breaks** ("she stumbles"). Tuning history: with no Ward she fell to the first block (bot, unupgraded army:
+  12/12 by turn 4); with a permanent Ward the bot never landed the second hit (0/12); with the stumble rule
+  and 2 Wards the unupgraded bot wins 10/12, between turns 5 and 12.
+- **The Pawn Emperor** (Act III): a full court behind an unbroken wall of 8 Pawns (+2 advanced), the Emperor
+  (King) with 1 Ward, 2 enemy actions, T = 12. Every enemy phase it summons the Pawns telegraphed the phase before
+  (1–2 on free rank-7 squares, spilling onto rank 6 when rank 7 is full); a countdown from 8 turns every enemy
+  Pawn into a Queen at 0, then restarts.
+- **Boss safety.** The enemy planner values a boss piece's safety like its King's (a boss captured is an
+  encounter lost); marked targets get a smaller premium. Without it the Tyrant Queen happily traded herself for a
+  Rook.
+- **Bot look-ahead** (validator playouts and balance sims, never the enemy): the bot now resolves Ward-blocked
+  captures as the rules do (no phantom wins against warded bosses), re-simulates chained intents in order when its
+  move interferes with a route, checks one ply beyond the committed intents (will the enemy be attacking its King,
+  and can the King step away?), and in races backs a single runner instead of spreading Pawn moves.
+- **Run statistics** add fizzles, enemy immobilizations and Ward blocks; save schema 2 migrates older saves by
+  zero-filling them.

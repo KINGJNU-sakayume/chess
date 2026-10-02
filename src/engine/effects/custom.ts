@@ -1,13 +1,14 @@
-import { fileOf, isLightSquare, neighbours, onBoard, rankOf, sqName, sqOf, type Sq } from '../core/coords';
+import { between, chebyshev, fileOf, isLightSquare, neighbours, onBoard, rankOf, sqName, sqOf, type Sq } from '../core/coords';
 import { isImmobilized } from '../core/draft';
-import { PIECE_NAME, type PieceType } from '../core/pieces';
+import { PIECE_NAME, PIECE_VALUE, type PieceType } from '../core/pieces';
 import type { Piece } from '../core/state';
-import { createGenContext, pieceAttacks } from '../moves/generate';
+import { attackedOpponents, createGenContext, pieceAttacks } from '../moves/generate';
+import { patchPiece } from '../core/draft';
 import type { HookSubscriber } from '../rules/compile';
 import { stackedName } from '../rules/num';
 import type { Resolver } from '../rules/resolver';
 import type { GameEvent } from '../rules/types';
-import { addWard, grantAction, markSquare, promotePiece, reposition } from './primitives';
+import { addWard, attemptCapture, grantAction, markSquare, pieceLabel, promotePiece, reposition } from './primitives';
 
 /**
  * Named custom effects and predicates — the documented escape hatch of D5 for
@@ -131,9 +132,146 @@ export const CUSTOM_EFFECTS: Record<string, CustomEffect> = {
       if (squares.length) r.log('trigger', `${label(sub)}: ${squares.map(sqName).join(', ')} become Crimson`, 1, squares);
     },
   },
+
+  royalFork: {
+    doc: 'Royal Fork: after a Knight move that attacks the enemy King and another piece, capture the most valuable other attacked piece (Ward rules apply; the Knight stays).',
+    run(r, e, sub) {
+      const d = r.d;
+      const knight = e.actorId ? d.pieces[e.actorId] : undefined;
+      if (!knight) return;
+      const victims = (e.attackedIds ?? [])
+        .map((id) => d.pieces[id])
+        .filter((p): p is Piece => !!p && p.type !== 'king' && p.side !== knight.side)
+        .sort((a, b) => PIECE_VALUE[b.type] - PIECE_VALUE[a.type] || a.sq - b.sq);
+      const victim = victims[0];
+      if (!victim) return;
+      r.log('trigger', `${label(sub)}: the fork strikes ${pieceLabel(victim)}`, 1, [victim.sq]);
+      attemptCapture(r, victim.id, knight.id, sub.upgradeId);
+    },
+  },
+
+  rookBattery: {
+    doc: 'Rook Battery: when a player Rook captures while aligned (same rank/file, nothing between) with another allied Rook, the nearest such Rook gains `stacks` actions usable only by itself.',
+    run(r, e, sub) {
+      const d = r.d;
+      const rook = e.actorId ? d.pieces[e.actorId] : undefined;
+      if (!rook) return;
+      const aligned = playerPieces(r, 'rook')
+        .filter((o) => o.id !== rook.id && (fileOf(o.sq) === fileOf(rook.sq) || rankOf(o.sq) === rankOf(rook.sq)))
+        .filter((o) => (between(rook.sq, o.sq) ?? []).every((sq) => !d.board[sq] && !d.terrain[sq]))
+        .sort((a, b) => chebyshev(a.sq, rook.sq) - chebyshev(b.sq, rook.sq) || a.sq - b.sq);
+      const partner = aligned[0];
+      if (!partner) return;
+      for (let i = 0; i < sub.stacks; i++) grantAction(r, { source: sub.upgradeId, label: `${label(sub)}: Rook ${sqName(partner.sq)}`, pieceId: partner.id });
+      r.log('trigger', `${label(sub)}: Rook ${sqName(partner.sq)} gains ${sub.stacks} extra action${sub.stacks > 1 ? 's' : ''}`, 1, [partner.sq]);
+    },
+  },
+
+  siegeTrack: {
+    doc: 'Siege Engine (turn end): count consecutive turn ends each player Rook attacks each enemy piece; pairs reaching max(1, 3 − stacks) mark the target as besieged.',
+    run(r, _e, sub) {
+      const d = r.d;
+      const required = Math.max(1, 3 - sub.stacks);
+      const ctx = createGenContext(d);
+      const next: Record<string, number> = {};
+      for (const rook of playerPieces(r, 'rook')) {
+        for (const targetId of attackedOpponents(ctx, rook.id)) {
+          const key = `siege:${rook.id}:${targetId}`;
+          next[key] = (d.counters[key] ?? 0) + 1;
+        }
+      }
+      for (const key of Object.keys(d.counters)) if (key.startsWith('siege:')) delete d.counters[key];
+      Object.assign(d.counters, next);
+      const besieged = new Set<string>();
+      for (const [key, n] of Object.entries(next)) {
+        if (n < required) continue;
+        const [, rookId, targetId] = key.split(':');
+        besieged.add(targetId);
+        const t = d.pieces[targetId];
+        const rk = d.pieces[rookId];
+        if (t && rk && !t.counters.besieged) r.log('trigger', `${label(sub)}: Rook ${sqName(rk.sq)} besieges ${pieceLabel(t)} — it falls at your next turn unless it escapes`, 1, [rk.sq, t.sq]);
+      }
+      for (const p of Object.values(d.pieces)) {
+        const want = besieged.has(p.id) ? 1 : 0;
+        if ((p.counters.besieged ?? 0) !== want) patchPiece(d, p.id, { counters: { ...p.counters, besieged: want } });
+      }
+    },
+  },
+
+  siegeFire: {
+    doc: 'Siege Engine (turn start): every besieged pair whose Rook still attacks its target captures it (the Rook stays; Ward rules apply).',
+    run(r, _e, sub) {
+      const d = r.d;
+      const required = Math.max(1, 3 - sub.stacks);
+      const ctx = createGenContext(d);
+      for (const [key, n] of Object.entries({ ...d.counters })) {
+        if (!key.startsWith('siege:') || n < required) continue;
+        const [, rookId, targetId] = key.split(':');
+        delete d.counters[key];
+        const rook = d.pieces[rookId];
+        const target = d.pieces[targetId];
+        if (!rook || !target) continue;
+        if (!attackedOpponents(ctx, rookId).includes(targetId)) {
+          r.log('trigger', `${label(sub)}: the siege of ${pieceLabel(target)} is broken`, 1, [target.sq]);
+          continue;
+        }
+        r.log('trigger', `${label(sub)}: Rook ${sqName(rook.sq)} bombards ${pieceLabel(target)}`, 1, [rook.sq, target.sq]);
+        attemptCapture(r, targetId, rookId, sub.upgradeId);
+      }
+      for (const p of Object.values(d.pieces)) if (p.counters.besieged) patchPiece(d, p.id, { counters: { ...p.counters, besieged: 0 } });
+    },
+  },
+
+  tyrantQueen: {
+    doc: 'Tyrant Queen: at turn start, if the player has a Queen and at most 1 other non-Pawn, non-King piece on the board, grant `stacks` Queen-only actions.',
+    run(r, _e, sub) {
+      const pieces = playerPieces(r);
+      if (!pieces.some((p) => p.type === 'queen')) return;
+      const others = pieces.filter((p) => p.type !== 'pawn' && p.type !== 'king').length - 1;
+      if (others > 1) return;
+      for (let i = 0; i < sub.stacks; i++) grantAction(r, { source: sub.upgradeId, label: `${label(sub)}: Queen`, pieceTypes: ['queen'] });
+      r.log('trigger', `${label(sub)}: the lonely Queen gains ${sub.stacks} extra action${sub.stacks > 1 ? 's' : ''}`);
+    },
+  },
+
+  consumeGambit: {
+    doc: "Queen's Gambit: a Queen's stored pierce charges are spent by her next move.",
+    run(r, e) {
+      const q = e.actorId ? r.d.pieces[e.actorId] : undefined;
+      if (q && q.counters.gambit) patchPiece(r.d, q.id, { counters: { ...q.counters, gambit: 0 } });
+    },
+  },
+
+  royalGuard: {
+    doc: 'Royal Guard: at enemy phase start, allied pieces within 1 (stack 2+: 2) squares of the player King gain 1 Ward until the phase ends.',
+    run(r, _e, sub) {
+      const d = r.d;
+      const radius = sub.stacks >= 2 ? 2 : 1;
+      const warded: string[] = [];
+      for (const king of playerPieces(r, 'king')) {
+        for (const p of playerPieces(r)) {
+          if (p.id === king.id || chebyshev(p.sq, king.sq) > radius) continue;
+          addWard(r, p.id, 1, sub.upgradeId, { at: 'phaseEnd', turn: d.turn });
+          warded.push(sqName(p.sq));
+        }
+      }
+      if (warded.length) r.log('trigger', `${label(sub)}: ${warded.join(', ')} gain a Ward this phase`, 1);
+    },
+  },
 };
 
 export const CUSTOM_PREDICATES: Record<string, CustomPredicate> = {
+  movedLastTurn: {
+    doc: 'Momentum Knight: the acting piece also moved during the previous Player Turn.',
+    test: (r, e) => !!e.actorId && r.d.movedLastTurn.includes(e.actorId),
+  },
+  forkIncludesKing: {
+    doc: 'Royal Fork: the fork attacks the opposing King plus at least one other piece.',
+    test(r, e) {
+      const ids = e.attackedIds ?? [];
+      return ids.some((id) => r.d.pieces[id]?.type === 'king') && ids.some((id) => r.d.pieces[id] && r.d.pieces[id].type !== 'king');
+    },
+  },
   targetAttackedByOtherBishop: {
     doc: 'Bishop Battery: before the capturing move, another allied Bishop also attacked the captured piece’s square.',
     test(r, e) {

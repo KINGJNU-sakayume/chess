@@ -73,6 +73,7 @@ export const emptyStats = (): EncounterState['stats'] => ({
   extraActionsGranted: 0,
   wardsBlocked: 0,
   fizzles: 0,
+  immobilizations: 0,
   piecesLost: 0,
   deploys: 0,
   triggers: 0,

@@ -1,5 +1,5 @@
 import { chebyshev, fileOf, rankOf, sqName, type Sq } from '../core/coords';
-import { isImmobilized } from '../core/draft';
+import { isImmobilized, totalWards } from '../core/draft';
 import { PIECE_NAME, PIECE_VALUE, type Side } from '../core/pieces';
 import type { BehaviorProfile, EncounterState, Intent, Piece } from '../core/state';
 import { createGenContext, pieceAttacks, pieceMoves, type GenContext, type Move } from '../moves/generate';
@@ -177,9 +177,12 @@ function scoreMove(h: EncounterState, slot: SlotData, m: Move, pc: PlanContext):
   if (checks) s += w.check * 35;
 
   // 1-ply safety: can the player trivially capture the moving piece on arrival?
+  // A boss is as precious as a King (losing it loses the encounter); marked targets nearly so.
+  // A warded boss only risks a Ward, so it plays boldly until its Wards are gone.
+  const critical = mover.type === 'king' || mover.tags.includes('boss');
   if (attackers.length > 0) {
-    let loss = mover.type === 'king' ? 600 : V(mover) * 10;
-    if (defenders > 0 && mover.type !== 'king') {
+    let loss = critical ? (mover.tags.includes('boss') && totalWards(mover) > 0 ? 150 : 600) : V(mover) * 10 + (mover.tags.includes('target') ? 120 : 0);
+    if (defenders > 0 && !critical) {
       const cheapest = Math.min(...attackers.map((id) => V(h.pieces[id])));
       loss = Math.max(0, loss - cheapest * 10);
     }
@@ -258,13 +261,24 @@ export function planIntents(
   count: number,
   pc: PlanContext,
   rngState: EncounterState['rng'],
+  /** Boss rule: one piece plans several sequential intents (e.g. the Tyrant Queen). */
+  extra?: { pieceId: string; count: number },
 ): { intents: Intent[]; rng: EncounterState['rng'] } {
   const rng = new Rng(rngState);
   const intents: Intent[] = [];
   const used = new Set<string>();
   const h = mutableCopy(state);
   const needsThreat = PROFILE_WEIGHTS[pc.profile.kind].protect > 0 && !!findKing(state, 'enemy');
-  for (let i = 0; i < count; i++) {
+  const slots: { only?: string }[] = [];
+  if (extra && state.pieces[extra.pieceId] && !isImmobilized(state.pieces[extra.pieceId])) {
+    for (let j = 0; j < extra.count; j++) slots.push({ only: extra.pieceId });
+  }
+  for (let i = 0; i < count; i++) slots.push({});
+  // A chained route never revisits a square it already stood on this phase (no back-and-forth routes).
+  const routeSquares = new Set<Sq>(extra && state.pieces[extra.pieceId] ? [state.pieces[extra.pieceId].sq] : []);
+  for (let i = 0; i < slots.length; i++) {
+    const only = slots[i].only;
+    if (!only && extra) used.add(extra.pieceId);
     const ctx = createGenContext(h);
     const idx = buildAttackIndex(ctx);
     const slot: SlotData = {
@@ -277,16 +291,20 @@ export function planIntents(
       playerPawns: Object.values(h.pieces).filter((p) => p.side === 'player' && p.type === 'pawn'),
     };
     let best: { move: Move; score: number } | null = null;
-    for (const id of Object.keys(h.pieces).sort()) {
+    for (const id of only ? [only] : Object.keys(h.pieces).sort()) {
       const p = h.pieces[id];
-      if (p.side !== 'enemy' || used.has(id) || isImmobilized(p)) continue;
+      if (!p || p.side !== 'enemy' || (!only && used.has(id)) || isImmobilized(p)) continue;
       for (const m of pieceMoves(ctx, id)) {
         if (pc.royalCurse && p.type === 'king' && idx.player[m.to].length > 0) continue;
+        if (only && routeSquares.has(m.to)) continue;
         const score = scoreMove(h, slot, m, pc) + rng.float() * 0.5;
         if (!best || score > best.score) best = { move: m, score };
       }
     }
-    if (!best) break;
+    if (!best) {
+      if (only) continue;
+      break;
+    }
     const m = best.move;
     const target = m.captureId ? h.pieces[m.captureId] : undefined;
     intents.push({
@@ -300,7 +318,9 @@ export function planIntents(
       expectedTargetType: target?.type,
     });
     used.add(m.pieceId);
-    makeHypo(h, m);
+    if (only) routeSquares.add(m.to);
+    // Later slots (and a boss's chained intents) plan from where this one really leaves the board.
+    makeHypo(h, m, { wards: true });
   }
   return { intents, rng: rng.state() };
 }

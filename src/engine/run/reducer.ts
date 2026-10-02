@@ -35,6 +35,9 @@ export const emptyRunStats = (): RunStats => ({
   movesByType: {},
   extraActions: 0,
   goldEarned: 0,
+  fizzles: 0,
+  immobilizations: 0,
+  wardsBlocked: 0,
 });
 
 export function newRun(seed: string): RunState {
@@ -219,6 +222,9 @@ function accumulateStats(stats: RunStats, enc: EncounterState): RunStats {
     longestBishopMove: Math.max(stats.longestBishopMove, s.longestBishopMove),
     movesByType,
     extraActions: stats.extraActions + s.extraActionsGranted,
+    fizzles: (stats.fizzles ?? 0) + s.fizzles,
+    immobilizations: (stats.immobilizations ?? 0) + (s.immobilizations ?? 0),
+    wardsBlocked: (stats.wardsBlocked ?? 0) + s.wardsBlocked,
   };
 }
 
