@@ -1,0 +1,113 @@
+name: Pages
+
+# Publishes main at /<repo>/ and every open same-repo PR at /<repo>/pr/<number>/.
+# Every run executes on the default branch (push to main, pull_request_target,
+# workflow_dispatch), so the github-pages environment's default-branch-only rule
+# still holds while PR branches get their own preview.
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, reopened, synchronize, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  pages-check:
+    name: Check GitHub Pages
+    runs-on: ubuntu-latest
+    permissions:
+      pages: read
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" --silent 2>/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=GitHub Pages is not enabled::Enable it once in Settings → Pages → Source: GitHub Actions, then re-run this workflow to deploy the game."
+          fi
+
+  build:
+    name: Build main + PR previews
+    needs: pages-check
+    if: needs.pages-check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build main
+        run: npm ci && npm run build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+      - name: Build PR previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NAME: ${{ github.event.repository.name }}
+          SITE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: |
+          set -uo pipefail
+          site="${SITE,,}"
+          mkdir -p dist/pr
+          items=""
+          echo "### PR previews" >> "$GITHUB_STEP_SUMMARY"
+          # Only branches in this repository: fork code never runs with this workflow's token.
+          gh api "repos/$REPO/pulls?state=open&per_page=100" \
+            --jq ".[] | select(.head.repo.full_name == \"$REPO\") | \"\(.number)\t\(.title | @html)\"" > "$RUNNER_TEMP/prs.tsv"
+          while IFS=$'\t' read -r n title; do
+            [ -n "$n" ] || continue
+            echo "::group::PR #$n"
+            dir="$RUNNER_TEMP/pr-$n"
+            if git fetch --no-tags --depth=1 origin "+refs/pull/$n/head:refs/remotes/pr/$n" \
+              && git worktree add --detach "$dir" "pr/$n" \
+              && (cd "$dir" && npm ci --no-audit --no-fund && VITE_BASE="/$NAME/pr/$n/" npm run build); then
+              cp -r "$dir/dist" "dist/pr/$n"
+              items="$items<li><a href=\"$n/\">#$n</a> — $title</li>"
+              echo "- #$n: $site/pr/$n/" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning title=PR #$n preview failed::Could not build PR #$n; it is left out of this deployment."
+              echo "- #$n: build failed" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/prs.tsv"
+          cat > dist/pr/index.html <<HTML
+          <!doctype html><meta charset="utf-8"><title>PR previews</title>
+          <h1>PR previews</h1><ul>${items:-<li>No open PRs</li>}</ul><p><a href="../">main</a></p>
+          HTML
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
