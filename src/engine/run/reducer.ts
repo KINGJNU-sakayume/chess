@@ -1,460 +1,315 @@
-import { PIECE_NAME, type PieceType } from '../core/pieces';
-import type { EncounterState } from '../core/state';
-import { applyPlayerAction, endTurn } from '../encounters/flow';
-import { generateEncounter } from '../encounters/generator';
-import { createEncounter, type RosterPlacement } from '../encounters/setup';
-import { stackedName } from '../rules/num';
-import { allUpgrades, upgradeDef } from '../rules/registry';
-import { createStreams, Rng, withStream, type StreamName } from '../rng/rng';
-import { actTuning, ACTS } from '../../data/acts';
-import { CURSE_POOL } from '../../data/affixes';
-import { EVENTS, type EventOutcome } from '../../data/events';
-import { RECRUITS } from '../../data/recruits';
-import { applyPlacement, deploymentTop, grantUpgrade, validateFormation, zoneOf } from './acquire';
-import { CROWN_PRICE, encounterGold, MAX_CROWNS, PIECE_PRICE, REMOVE_CURSE_PRICE, REROLL_PRICE, upgradePrice } from './economy';
-import { generateActMap, nodeById, reachableNodes } from './map';
-import { generateOffers, type OfferContext, type OfferPool } from './offers';
-import { standardRoster } from './roster';
-import { addRosterPiece } from './rosterOps';
-import { RUN_SCHEMA_VERSION, type MapNode, type Pending, type RecruitOffer, type RunAction, type RunState, type RunStats, type ShopItem } from './types';
+import { cardById } from '../augments/cards';
+import { type Color } from '../game/types';
+import type { MatchSetup } from '../match/match';
+import {
+  ACTS,
+  GOLD_REWARD,
+  MAX_LIVES,
+  PRICE,
+  REWARD_WEIGHTS,
+  START_GOLD,
+  START_LIVES,
+  START_UNDOS,
+  UNDOS_PER_PURCHASE,
+} from './content';
+import { EVENTS, eventById } from './events';
+import { generateMap, reachable } from './map';
+import { addAugment, addUndos, gainLife, makeEnemy, offerCards, ownsCard, rollRng } from './rolls';
+import type { Difficulty, RunAction, RunState, ShopItem } from './types';
 
 /**
- * The run controller: a pure reducer over RunState. Every player decision is
- * a RunAction; replaying the recorded actions from the same seed reproduces
- * the run exactly (D6).
+ * The run as a pure reducer: every screen of the roguelike is a phase, and
+ * every player decision an action. Battles themselves are ordinary matches
+ * (see `battleSetup`); their outcome comes back as a `battle-end` action.
  */
+export class RunError extends Error {}
 
-export const emptyRunStats = (): RunStats => ({
-  encountersWon: 0,
-  encountersLost: 0,
-  turnsPlayed: 0,
-  captures: 0,
-  promotions: 0,
-  bishopLongMoves: 0,
-  longestBishopMove: 0,
-  movesByType: {},
-  extraActions: 0,
-  goldEarned: 0,
-  fizzles: 0,
-  immobilizations: 0,
-  wardsBlocked: 0,
-});
-
-export function newRun(seed: string): RunState {
-  const streams = createStreams(seed);
-  const [map, rng] = withStream(streams, 'map', (r) => generateActMap(1, seed, r));
-  return {
-    schema: RUN_SCHEMA_VERSION,
+export function createRun(seed: string, difficulty: Difficulty): RunState {
+  const run: RunState = {
+    version: 1,
     seed,
-    rng,
+    difficulty,
     act: 1,
-    map,
-    at: null,
+    map: generateMap(seed, 1),
+    current: null,
     visited: [],
-    roster: standardRoster(),
-    upgrades: [],
-    mutations: [],
-    rank4: [],
-    curses: [],
-    crowns: MAX_CROWNS,
-    gold: 0,
-    acquisitions: 0,
-    encounter: null,
-    encounterNode: null,
-    undo: [],
-    pending: null,
-    pendingNode: null,
-    result: null,
-    stats: emptyRunStats(),
-    history: [{ act: 1, text: 'The run begins with an orthodox army.' }],
-    actions: [],
+    lives: START_LIVES,
+    maxLives: MAX_LIVES,
+    gold: START_GOLD,
+    undos: START_UNDOS,
+    augments: [],
+    phase: 'start',
+    enemy: null,
+    battleSeed: null,
+    attempts: 0,
+    reward: null,
+    shop: null,
+    event: null,
+    seenEvents: [],
+    nextEnemyBonus: 0,
+    notice: null,
+    stats: { wins: 0, losses: 0, draws: 0, elites: 0, bosses: 0, floors: 0 },
+    counter: 0,
+  };
+  run.reward = { title: '출발 선물', cards: offerCards(run, rollRng(run, 'start'), [100, 0, 0]), gold: 0 };
+  return run;
+}
+
+/** The match a battle is played as: the player is White, the enemy Black with its augments. */
+export function battleSetup(run: RunState): MatchSetup {
+  if (!run.enemy || !run.battleSeed) throw new RunError('no battle');
+  const human: Color = 0;
+  return {
+    mode: 'ai',
+    human,
+    level: run.enemy.level,
+    seed: run.battleSeed,
+    drafts: false,
+    loadout: [run.augments.map((a) => ({ id: a.id, bonus: a.bonus })), run.enemy.augments.map((id) => ({ id }))],
+    names: [null, run.enemy.name],
+    context: 'run',
   };
 }
 
-/** What the UI should show. */
-export type RunView = 'map' | 'encounter' | 'pending' | 'over';
+const clone = (run: RunState): RunState => JSON.parse(JSON.stringify(run)) as RunState;
 
-export function runView(run: RunState): RunView {
-  if (run.result) return 'over';
-  if (run.encounter) return 'encounter';
-  if (run.pending) return 'pending';
-  return 'map';
-}
-
-export function runReducer(run: RunState, action: RunAction): RunState {
-  const next = reduce(run, action);
-  return { ...next, actions: [...run.actions, action] };
-}
-
-// ---------------------------------------------------------------------------
-
-function rngOf<T>(run: RunState, stream: StreamName, fn: (rng: Rng) => T): [T, RunState] {
-  const [value, rng] = withStream(run.rng, stream, fn);
-  return [value, { ...run, rng }];
-}
-
-function offerCtx(run: RunState): OfferContext {
-  return { act: run.act, owned: run.upgrades, roster: run.roster };
-}
-
-function offers(run: RunState, opts: { pool?: OfferPool; atLeastOneRare?: boolean; count?: number } = {}): [string[], RunState] {
-  return rngOf(run, 'offers', (rng) => generateOffers(rng, offerCtx(run), opts));
-}
-
-function log(run: RunState, text: string): RunState {
-  return { ...run, history: [...run.history, { act: run.act, text }] };
-}
-
-export function rosterPlacements(run: RunState): RosterPlacement[] {
-  return run.roster.map((r) => ({ rosterId: r.id, type: r.type, sq: r.sq, locked: r.locked }));
-}
-
-export function buildEncounter(run: RunState, node: MapNode): EncounterState {
-  const kind = node.type === 'boss' ? 'boss' : node.type === 'elite' ? 'elite' : 'combat';
-  const gen = generateEncounter({
-    seed: node.seed,
-    act: run.act,
-    kind,
-    templateId: node.templateId!,
-    difficulty: Math.min(1, node.row / Math.max(1, run.map.rows - 1)),
-    rules: { upgrades: run.upgrades, affixes: run.curses },
-    roster: rosterPlacements(run),
-    mutations: run.mutations,
-    deploymentTop: deploymentTop(run),
-  });
-  return createEncounter(gen.setup);
-}
-
-function recruitOffers(run: RunState): [RecruitOffer[], RunState] {
-  return rngOf(run, 'offers', (rng) => {
-    const pool = RECRUITS.slice();
-    const out: RecruitOffer[] = [];
-    while (out.length < 3 && pool.length) {
-      const idx = rng.weightedIndex(pool.map((p) => p.weight));
-      const r = pool.splice(idx, 1)[0];
-      out.push({ id: r.id, label: r.label, pieces: r.pieces });
+export function runAction(prev: RunState, a: RunAction): RunState {
+  const run = clone(prev);
+  switch (a.type) {
+    case 'start-pick': {
+      expect(run, 'start');
+      if (a.card && run.reward?.cards.includes(a.card)) addAugment(run, a.card);
+      run.reward = null;
+      run.phase = 'map';
+      run.notice = { tone: 'info', text: '1막이 시작됩니다. 길을 골라 보스까지 올라가세요.' };
+      break;
     }
-    return out;
-  });
-}
-
-function addPieces(run: RunState, pieces: PieceType[]): RunState {
-  let roster = run.roster;
-  for (const t of pieces) roster = addRosterPiece(roster, t, zoneOf(run));
-  return log({ ...run, roster }, `Recruited ${pieces.map((t) => PIECE_NAME[t]).join(', ')}`);
-}
-
-function shopItems(run: RunState): [ShopItem[], RunState] {
-  const [ups, r1] = offers(run, { count: 3 });
-  const [mut, r2] = offers(r1, { pool: 'mutation', count: 1 });
-  const [recruits, r3] = recruitOffers(r2);
-  const items: ShopItem[] = [...ups, ...mut].map((id) => {
-    const def = upgradeDef(id);
-    return { kind: 'upgrade', id, label: def.name, price: upgradePrice(def.rarity, run.act) };
-  });
-  const piece = recruits[0];
-  if (piece) items.push({ kind: 'piece', id: piece.id, label: piece.label, price: piece.pieces.reduce((n, t) => n + PIECE_PRICE[t], 0), pieces: piece.pieces });
-  if (run.crowns < MAX_CROWNS) items.push({ kind: 'crown', id: 'crown', label: 'Restore a Crown', price: CROWN_PRICE });
-  if (run.curses.length) items.push({ kind: 'removeCurse', id: 'curse', label: 'Lift a curse', price: REMOVE_CURSE_PRICE });
-  return [items, r3];
-}
-
-function enterNode(run: RunState, node: MapNode): RunState {
-  let r: RunState = { ...run, at: node.id, visited: [...run.visited, node.id], pendingNode: node.id };
-  switch (node.type) {
-    case 'combat':
-    case 'elite':
-    case 'boss':
-      return { ...r, encounter: buildEncounter(r, node), encounterNode: node.id, undo: [] };
-    case 'upgrade': {
-      const [o, r2] = offers(r);
-      return { ...r2, pending: { kind: 'reward', source: 'upgrade', offers: o, gold: 0, crown: false } };
+    case 'enter':
+      enter(run, a.node);
+      break;
+    case 'begin-battle': {
+      expect(run, 'prebattle');
+      run.battleSeed = `${run.seed}:battle:${run.counter++}`;
+      run.phase = 'battle';
+      run.notice = null;
+      break;
     }
-    case 'mutation': {
-      const [o, r2] = offers(r, { pool: 'mutation' });
-      return { ...r2, pending: { kind: 'mutationOffer', offers: o } };
+    case 'battle-end':
+      battleEnd(run, a.outcome, a.undos);
+      break;
+    case 'take-reward': {
+      if (run.phase !== 'reward' && run.phase !== 'treasure') throw new RunError('no reward open');
+      if (a.card && run.reward?.cards.includes(a.card)) addAugment(run, a.card);
+      run.reward = null;
+      afterReward(run);
+      break;
     }
-    case 'recruit': {
-      const [o, r2] = recruitOffers(r);
-      return { ...r2, pending: { kind: 'recruit', offers: o } };
+    case 'buy':
+      buy(run, a.index);
+      break;
+    case 'leave': {
+      if (run.phase === 'event' && !run.event?.result) throw new RunError('choose first');
+      if (run.phase !== 'shop' && run.phase !== 'event') throw new RunError('nothing to leave');
+      run.shop = null;
+      run.event = null;
+      run.phase = 'map';
+      break;
     }
-    case 'shop': {
-      const [items, r2] = shopItems(r);
-      return { ...r2, pending: { kind: 'shop', items, rerolls: 0 } };
+    case 'rest': {
+      expect(run, 'rest');
+      if (a.choice === 'heal') {
+        const full = run.lives >= run.maxLives;
+        gainLife(run, 1);
+        run.notice = { tone: 'good', text: full ? '푹 쉬었습니다.' : '푹 쉬었습니다. 목숨 +1.' };
+      } else {
+        const aug = run.augments.find((x) => x.id === a.card);
+        if (!aug || cardById(aug.id).kind !== 'active') throw new RunError('forge needs an active augment');
+        aug.bonus += 1;
+        run.notice = { tone: 'good', text: `「${cardById(aug.id).name}」을(를) 연마했습니다. 대국마다 한 번 더 쓸 수 있습니다.` };
+      }
+      run.phase = 'map';
+      break;
+    }
+    case 'spend-undo': {
+      expect(run, 'battle');
+      if (run.undos <= 0) throw new RunError('no undos left');
+      run.undos -= 1;
+      break;
     }
     case 'event': {
-      const pool = EVENTS.filter((e) => e.acts.includes(run.act));
-      const [ev, r2] = rngOf(r, 'events', (rng) => rng.pick(pool));
-      r = r2;
-      return { ...r, pending: { kind: 'event', eventId: ev.id } };
+      expect(run, 'event');
+      if (!run.event || run.event.result) throw new RunError('event closed');
+      const choice = eventById(run.event.id).choices[a.choice];
+      if (!choice) throw new RunError('no such choice');
+      const why = choice.blocked?.(run);
+      if (why) throw new RunError(why);
+      if (choice.needsActive && !run.augments.some((x) => x.id === a.card && cardById(x.id).kind === 'active')) {
+        throw new RunError('choose an active augment');
+      }
+      const text = choice.apply(run, rollRng(run, `event:${run.event.id}`), a.card);
+      if (run.phase === 'event') run.event.result = text;
+      else {
+        run.event = null;
+        run.notice = { tone: 'info', text };
+      }
+      break;
     }
-    case 'sacrifice':
-      return { ...r, pending: { kind: 'sacrifice', stage: 'choose', offers: [] } };
+  }
+  return run;
+}
+
+function expect(run: RunState, phase: RunState['phase']): void {
+  if (run.phase !== phase) throw new RunError(`expected ${phase}, in ${run.phase}`);
+}
+
+function enter(run: RunState, nodeId: string): void {
+  expect(run, 'map');
+  if (!reachable(run.map, run.current).includes(nodeId)) throw new RunError('not reachable');
+  run.current = nodeId;
+  run.visited.push(nodeId);
+  run.stats.floors += 1;
+  run.notice = null;
+  run.attempts = 0;
+  if (nodeId === run.map.bossId) {
+    run.enemy = makeEnemy(run, rollRng(run, 'boss'), 'boss', run.map.rows);
+    run.phase = 'prebattle';
+    return;
+  }
+  const node = run.map.nodes[nodeId];
+  switch (node.type) {
+    case 'battle':
+    case 'elite':
+      run.enemy = makeEnemy(run, rollRng(run, 'enemy'), node.type, node.row);
+      run.phase = 'prebattle';
+      break;
+    case 'shop':
+      run.shop = makeShop(run);
+      run.phase = 'shop';
+      break;
+    case 'rest':
+      run.phase = 'rest';
+      break;
+    case 'treasure':
+      run.reward = { title: '보물 상자', cards: offerCards(run, rollRng(run, 'treasure'), REWARD_WEIGHTS.treasure[run.act - 1]), gold: 0 };
+      run.phase = 'treasure';
+      break;
+    case 'event': {
+      const rng = rollRng(run, 'event-pick');
+      const unseen = EVENTS.filter((e) => !run.seenEvents.includes(e.id));
+      const e = rng.pick(unseen.length ? unseen : EVENTS);
+      run.seenEvents.push(e.id);
+      run.event = { id: e.id, result: null };
+      run.phase = 'event';
+      break;
+    }
+    default:
+      run.phase = 'map';
   }
 }
 
-/** After a pending screen resolves: advance the act when the boss has fallen. */
-function settle(run: RunState): RunState {
-  if (run.pending || run.encounter || run.result) return run;
-  const atBoss = run.at !== null && nodeById(run.map, run.at).type === 'boss';
-  if (!atBoss) return { ...run, pendingNode: null };
-  if (run.act >= ACTS.length) {
-    return log({ ...run, result: { outcome: 'victory', act: run.act }, pendingNode: null }, 'The final boss falls. You broke chess.');
+function battleEnd(run: RunState, outcome: 'win' | 'loss' | 'draw', undos: number): void {
+  expect(run, 'battle');
+  const enemy = run.enemy!;
+  run.undos = Math.max(0, undos);
+  const boss = enemy.kind === 'boss';
+  if (outcome === 'win') {
+    run.stats.wins += 1;
+    if (enemy.kind === 'elite') run.stats.elites += 1;
+    if (boss) run.stats.bosses += 1;
+    const rng = rollRng(run, 'reward');
+    const [lo, hi] = GOLD_REWARD[enemy.kind];
+    const gold = Math.round((rng.range(lo, hi) + 5 * (run.act - 1)) * (enemy.goldMul ?? 1));
+    run.gold += gold;
+    const weights = boss ? [0, 0, 100] : enemy.kind === 'elite' ? REWARD_WEIGHTS.elite[run.act - 1] : REWARD_WEIGHTS.battle[run.act - 1];
+    run.reward = { title: boss ? '보스 격파 보상' : enemy.kind === 'elite' ? '정예 격파 보상' : '승리 보상', cards: offerCards(run, rng, weights), gold };
+    if (boss) gainLife(run, 1);
+    run.phase = 'reward';
+    run.notice = { tone: 'good', text: `${enemy.name}을(를) 이겼습니다! 골드 +${gold}${boss ? ', 목숨 +1' : ''}` };
+    return;
   }
-  const act = run.act + 1;
-  const [map, rng] = withStream(run.rng, 'map', (r) => generateActMap(act, run.seed, r));
-  return log({ ...run, act, map, rng, at: null, visited: [], pendingNode: null }, `Act ${act} begins: ${actTuning(act).feel}.`);
-}
-
-function accumulateStats(stats: RunStats, enc: EncounterState): RunStats {
-  const s = enc.stats;
-  const movesByType = { ...stats.movesByType };
-  for (const [k, v] of Object.entries(s.movesByType)) movesByType[k as PieceType] = (movesByType[k as PieceType] ?? 0) + (v ?? 0);
-  return {
-    ...stats,
-    encountersWon: stats.encountersWon + (enc.outcome?.result === 'won' ? 1 : 0),
-    encountersLost: stats.encountersLost + (enc.outcome?.result === 'lost' ? 1 : 0),
-    turnsPlayed: stats.turnsPlayed + enc.turn,
-    captures: stats.captures + s.captures,
-    promotions: stats.promotions + s.promotions,
-    bishopLongMoves: stats.bishopLongMoves + s.bishopLongMoves,
-    longestBishopMove: Math.max(stats.longestBishopMove, s.longestBishopMove),
-    movesByType,
-    extraActions: stats.extraActions + s.extraActionsGranted,
-    fizzles: (stats.fizzles ?? 0) + s.fizzles,
-    immobilizations: (stats.immobilizations ?? 0) + (s.immobilizations ?? 0),
-    wardsBlocked: (stats.wardsBlocked ?? 0) + s.wardsBlocked,
-  };
-}
-
-function finishEncounter(run: RunState): RunState {
-  const enc = run.encounter;
-  if (!enc?.outcome) throw new Error('Encounter not finished');
-  const node = nodeById(run.map, run.encounterNode!);
-  let r: RunState = { ...run, encounter: null, undo: [], stats: accumulateStats(run.stats, enc) };
-  if (enc.outcome.result === 'won') {
-    const gold = encounterGold(enc);
-    r = log({ ...r, gold: r.gold + gold, stats: { ...r.stats, goldEarned: r.stats.goldEarned + gold } }, `Won ${enc.config.name} (+${gold} gold)`);
-    if (node.type === 'boss') {
-      const crown = r.crowns < MAX_CROWNS;
-      const [o, r2] = offers(r, { pool: 'rarePlus' });
-      return { ...r2, crowns: Math.min(MAX_CROWNS, r2.crowns + 1), pending: { kind: 'reward', source: 'boss', offers: o, gold, crown } };
-    }
-    const [o, r2] = offers(r, { atLeastOneRare: node.type === 'elite' });
-    return { ...r2, pending: { kind: 'reward', source: node.type === 'elite' ? 'elite' : 'combat', offers: o, gold, crown: false } };
+  if (outcome === 'draw' && !boss) {
+    run.stats.draws += 1;
+    const gold = Math.round(GOLD_REWARD[enemy.kind][0] / 2);
+    run.gold += gold;
+    run.reward = { title: '무승부', cards: [], gold };
+    run.phase = 'reward';
+    run.notice = { tone: 'info', text: `${enemy.name}과(와) 비겼습니다. 목숨은 지켰지만 증강 보상은 없습니다. 골드 +${gold}` };
+    return;
   }
-  // Defeat: lose a Crown, no reward.
-  const crowns = r.crowns - 1;
-  r = log({ ...r, crowns }, `Lost ${enc.config.name}: ${enc.outcome.reason} (−1 Crown)`);
-  if (crowns <= 0) return log({ ...r, result: { outcome: 'defeat', act: r.act } }, 'The last Crown is lost. The run ends.');
-  return { ...r, pending: { kind: 'defeat', nodeId: node.id, boss: node.type === 'boss', reason: enc.outcome.reason } };
-}
-
-function applyEventOutcomes(run: RunState, outcomes: EventOutcome[]): RunState {
-  let r = run;
-  for (const o of outcomes) {
-    switch (o.type) {
-      case 'gold':
-        r = log({ ...r, gold: Math.max(0, r.gold + o.amount) }, `${o.amount >= 0 ? '+' : ''}${o.amount} gold`);
-        break;
-      case 'crown':
-        r = log({ ...r, crowns: Math.min(MAX_CROWNS, r.crowns + o.amount) }, 'A Crown is restored');
-        break;
-      case 'addPieces':
-        r = addPieces(r, o.pieces);
-        break;
-      case 'removePiece': {
-        const candidates = r.roster.filter((p) => p.type !== 'king' && (o.pieceType === 'any' || p.type === o.pieceType) && !p.locked);
-        if (!candidates.length) break;
-        const [victim, r2] = rngOf(r, 'events', (rng) => rng.pick(candidates));
-        r = log({ ...r2, roster: r2.roster.filter((p) => p.id !== victim.id) }, `Lost a ${PIECE_NAME[victim.type]}`);
-        break;
-      }
-      case 'randomUpgrade': {
-        const pool = allUpgrades().filter((u) => u.tags.includes(o.tag) && !u.choice);
-        const ctxOk = pool.filter((u) => generateOffersFilter(r, u.id));
-        if (!ctxOk.length) {
-          r = log({ ...r, gold: r.gold + 15 }, 'Nothing to learn here (+15 gold)');
-          break;
-        }
-        const [pick, r2] = rngOf(r, 'events', (rng) => rng.pick(ctxOk));
-        r = grantUpgrade(r2, pick.id);
-        break;
-      }
-      case 'offer': {
-        const [o2, r2] = offers(r, { pool: o.pool });
-        r = { ...r2, pending: { kind: 'reward', source: 'event', offers: o2, gold: 0, crown: false } };
-        break;
-      }
-      case 'curse': {
-        const options = CURSE_POOL.filter((c) => !r.curses.includes(c));
-        if (!options.length) break;
-        const [curse, r2] = rngOf(r, 'events', (rng) => rng.pick(options));
-        r = log({ ...r2, curses: [...r2.curses, curse] }, `Cursed: ${curse.replace(/_/g, ' ')}`);
-        break;
-      }
-      case 'gamble': {
-        const [win, r2] = rngOf(r, 'events', (rng) => rng.chance(o.chance));
-        r = applyEventOutcomes(log(r2, win ? 'Fortune smiles.' : 'Fortune frowns.'), win ? o.win : o.lose);
-        break;
-      }
-    }
+  // A loss (or a draw against a boss, which must be beaten).
+  if (outcome === 'draw') run.stats.draws += 1;
+  else run.stats.losses += 1;
+  run.lives -= 1;
+  if (run.lives <= 0) {
+    run.phase = 'defeat';
+    run.notice = { tone: 'bad', text: `${enemy.name}에게 졌습니다. 목숨을 모두 잃었습니다.` };
+    return;
   }
-  return r;
+  if (boss) {
+    run.attempts += 1;
+    run.phase = 'prebattle';
+    run.notice = { tone: 'bad', text: `${enemy.name}을(를) 넘지 못했습니다. 목숨 -1. 보스는 쓰러뜨려야 지나갈 수 있습니다.` };
+    return;
+  }
+  run.enemy = null;
+  run.phase = 'map';
+  run.notice = { tone: 'bad', text: `${enemy.name}에게 졌습니다. 목숨 -1. 보상 없이 길을 계속합니다.` };
 }
 
-function generateOffersFilter(run: RunState, id: string): boolean {
-  const def = upgradeDef(id);
-  const owned = run.upgrades.find((u) => u.id === id)?.stacks ?? 0;
-  if (!def.stackable && owned > 0) return false;
-  if (def.maxUsefulStacks !== undefined && owned >= def.maxUsefulStacks) return false;
-  return true;
+function afterReward(run: RunState): void {
+  const bossBeaten = run.current === run.map.bossId && run.enemy?.kind === 'boss';
+  run.enemy = null;
+  if (!bossBeaten) {
+    run.phase = 'map';
+    return;
+  }
+  if (run.act >= ACTS) {
+    run.phase = 'victory';
+    run.notice = { tone: 'good', text: '모든 보스를 쓰러뜨렸습니다!' };
+    return;
+  }
+  run.act += 1;
+  run.map = generateMap(run.seed, run.act);
+  run.current = null;
+  run.visited = [];
+  run.phase = 'map';
+  run.notice = { tone: 'info', text: `${run.act}막에 들어섰습니다. 상대가 더 강해지고, 더 많은 증강을 들고 나옵니다.` };
 }
 
-function pickReward(run: RunState, p: Extract<Pending, { kind: 'reward' | 'mutationOffer' }>, index: number): RunState {
-  const id = p.offers[index];
-  if (!id) throw new Error('No such offer');
-  return grantUpgrade({ ...run, pending: null }, id);
+function makeShop(run: RunState): ShopItem[] {
+  const rng = rollRng(run, 'shop');
+  const items: ShopItem[] = [];
+  const cards = [
+    ...offerCards(run, rng, [100, 0, 0], 2),
+  ];
+  cards.push(...offerCards(run, rng, [0, 100, 0], 2, cards));
+  cards.push(...offerCards(run, rng, [0, 0, 100], 1, cards));
+  for (const id of cards) {
+    const base = PRICE[cardById(id).tier];
+    items.push({ kind: 'card', card: id, price: Math.round((base * (90 + rng.int(21))) / 100), sold: false });
+  }
+  items.push({ kind: 'heal', price: PRICE.heal, sold: false });
+  items.push({ kind: 'undo', price: PRICE.undo, sold: false });
+  return items;
 }
 
-function reduce(run: RunState, a: RunAction): RunState {
-  if (run.result && a.type !== 'formation') throw new Error('The run is over');
-  switch (a.type) {
-    case 'chooseNode': {
-      if (run.encounter || run.pending) throw new Error('Finish the current node first');
-      const node = reachableNodes(run.map, run.at).find((n) => n.id === a.nodeId);
-      if (!node) throw new Error('Node not reachable');
-      return enterNode(run, node);
-    }
-    case 'encounterAct': {
-      if (!run.encounter) throw new Error('No encounter');
-      const next = applyPlayerAction(run.encounter, a.action).state;
-      return { ...run, encounter: next, undo: [...run.undo, run.encounter] };
-    }
-    case 'endTurn': {
-      if (!run.encounter) throw new Error('No encounter');
-      return { ...run, encounter: endTurn(run.encounter).state, undo: [] };
-    }
-    case 'undo': {
-      if (!run.encounter || !run.undo.length) throw new Error('Nothing to undo');
-      return { ...run, encounter: run.undo[run.undo.length - 1], undo: run.undo.slice(0, -1) };
-    }
-    case 'finishEncounter':
-      return settle(finishEncounter(run));
-    case 'retryBoss': {
-      const p = run.pending;
-      if (!p || p.kind !== 'defeat' || !p.boss) throw new Error('No boss to retry');
-      const node = nodeById(run.map, p.nodeId);
-      return { ...run, pending: null, encounter: buildEncounter(run, node), encounterNode: node.id, undo: [] };
-    }
-    case 'continueAfterDefeat': {
-      const p = run.pending;
-      if (!p || p.kind !== 'defeat' || p.boss) throw new Error('Nothing to continue');
-      return settle({ ...run, pending: null });
-    }
-    case 'pickOffer': {
-      const p = run.pending;
-      if (!p) throw new Error('Nothing pending');
-      if (p.kind === 'reward' || p.kind === 'mutationOffer') return settle(pickReward(run, p, a.index));
-      if (p.kind === 'recruit') {
-        const offer = p.offers[a.index];
-        if (!offer) throw new Error('No such offer');
-        return settle(addPieces({ ...run, pending: null }, offer.pieces));
-      }
-      if (p.kind === 'sacrifice' && p.stage === 'reward') {
-        const id = p.offers[a.index];
-        if (!id) throw new Error('No such offer');
-        return settle(grantUpgrade({ ...run, pending: null }, id));
-      }
-      throw new Error('Nothing to pick');
-    }
-    case 'skip': {
-      const p = run.pending;
-      if (!p || !['reward', 'mutationOffer', 'recruit', 'sacrifice'].includes(p.kind)) throw new Error('Cannot skip');
-      return settle(log({ ...run, pending: null }, 'Skipped the offer'));
-    }
-    case 'placeSquares':
-    case 'placeLine':
-    case 'pickPiece':
-    case 'pickSide': {
-      return settle(applyPlacement(run, a));
-    }
-    case 'buy': {
-      const p = run.pending;
-      if (!p || p.kind !== 'shop') throw new Error('Not in a shop');
-      const item = p.items[a.index];
-      if (!item || item.sold) throw new Error('Not for sale');
-      if (run.gold < item.price) throw new Error('Not enough gold');
-      const items = p.items.map((it, i) => (i === a.index ? { ...it, sold: true } : it));
-      const shop: Pending = { ...p, items };
-      let r: RunState = log({ ...run, gold: run.gold - item.price, pending: shop }, `Bought ${item.label} for ${item.price} gold`);
-      switch (item.kind) {
-        case 'upgrade': {
-          r = grantUpgrade({ ...r, pending: null }, item.id);
-          if (r.pending?.kind === 'place') return { ...r, pending: { ...r.pending, resume: shop } };
-          return { ...r, pending: shop };
-        }
-        case 'piece':
-          return { ...addPieces(r, item.pieces ?? []), pending: shop };
-        case 'crown':
-          return { ...r, crowns: Math.min(MAX_CROWNS, r.crowns + 1) };
-        case 'removeCurse':
-          return log({ ...r, curses: r.curses.slice(1) }, `Lifted curse: ${run.curses[0]?.replace(/_/g, ' ')}`);
-      }
-      return r;
-    }
-    case 'reroll': {
-      const p = run.pending;
-      if (!p || p.kind !== 'shop') throw new Error('Not in a shop');
-      const price = p.rerolls === 0 ? 0 : REROLL_PRICE;
-      if (run.gold < price) throw new Error('Not enough gold');
-      const [items, r] = shopItems({ ...run, gold: run.gold - price });
-      // Keep non-upgrade items that were already bought or are not rerollable.
-      const kept = p.items.filter((it) => it.kind !== 'upgrade');
-      const fresh = items.filter((it) => it.kind === 'upgrade');
-      return { ...r, pending: { kind: 'shop', items: [...fresh, ...kept], rerolls: p.rerolls + 1 } };
-    }
-    case 'leave': {
-      const p = run.pending;
-      if (!p || !['shop', 'event', 'sacrifice'].includes(p.kind)) throw new Error('Nothing to leave');
-      return settle({ ...run, pending: null });
-    }
-    case 'eventChoice': {
-      const p = run.pending;
-      if (!p || p.kind !== 'event') throw new Error('No event');
-      const ev = EVENTS.find((e) => e.id === p.eventId)!;
-      const choice = ev.choices[a.index];
-      if (!choice) throw new Error('No such choice');
-      if (choice.requires?.gold && run.gold < choice.requires.gold) throw new Error('Not enough gold');
-      if (choice.requires?.crownsBelowMax && run.crowns >= MAX_CROWNS) throw new Error('Crowns are full');
-      const r = applyEventOutcomes(log({ ...run, pending: null }, `${ev.title}: ${choice.label}`), choice.outcomes);
-      return settle(r);
-    }
-    case 'sacrificePiece': {
-      const p = run.pending;
-      if (!p || p.kind !== 'sacrifice' || p.stage !== 'choose') throw new Error('No sacrifice');
-      const victim = run.roster.find((x) => x.id === a.rosterId);
-      if (!victim || victim.type === 'king') throw new Error('Cannot sacrifice that piece');
-      const r = log({ ...run, roster: run.roster.filter((x) => x.id !== victim.id) }, `Sacrificed a ${PIECE_NAME[victim.type]}`);
-      const [o, r2] = offers(r, { pool: 'rarePlus' });
-      return { ...r2, pending: { kind: 'sacrifice', stage: 'reward', offers: o } };
-    }
-    case 'acceptCurse': {
-      const p = run.pending;
-      if (!p || p.kind !== 'sacrifice' || p.stage !== 'choose') throw new Error('No sacrifice');
-      const r = applyEventOutcomes(run, [{ type: 'curse' }]);
-      const [o, r2] = offers(r, { pool: 'rarePlus' });
-      return { ...r2, pending: { kind: 'sacrifice', stage: 'reward', offers: o } };
-    }
-    case 'formation': {
-      if (run.encounter) throw new Error('Cannot change formation during an encounter');
-      const err = validateFormation(run, a.roster);
-      if (err) throw new Error(err);
-      return { ...run, roster: a.roster };
-    }
+function buy(run: RunState, index: number): void {
+  expect(run, 'shop');
+  const item = run.shop?.[index];
+  if (!item || item.sold) throw new RunError('not for sale');
+  if (run.gold < item.price) throw new RunError('not enough gold');
+  if (item.kind === 'heal' && run.lives >= run.maxLives) throw new RunError('already full');
+  if (item.kind === 'card' && item.card && ownsCard(run, item.card)) throw new RunError('owned');
+  run.gold -= item.price;
+  item.sold = true;
+  if (item.kind === 'card' && item.card) addAugment(run, item.card);
+  if (item.kind === 'heal') gainLife(run, 1);
+  if (item.kind === 'undo') {
+    addUndos(run, UNDOS_PER_PURCHASE);
+    item.sold = false;
+    item.price += 15;
   }
 }
 
-export function describeOwned(run: RunState): string[] {
-  return run.upgrades.map((u) => stackedName(upgradeDef(u.id).name, u.stacks));
-}
+/** Nodes the player can enter now (map phase). */
+export const nextNodes = (run: RunState): string[] => (run.phase === 'map' ? reachable(run.map, run.current) : []);

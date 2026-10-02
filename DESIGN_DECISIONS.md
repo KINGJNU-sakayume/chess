@@ -1,259 +1,84 @@
-# Design Decisions
+# 설계 결정
 
-Interpretations and choices made where the build brief was silent, ambiguous or self-contradictory. Part B of
-the brief is authoritative; every entry below either implements Part B literally or resolves a gap using the
-Development Rule ("does this increase the player's ability to create their own broken version of chess?").
+## 방향 전환: 퍼즐형 로그라이크 → 증강 체스
 
-## Engine foundations
+이전 버전은 Into the Breach식 구조였습니다. 적이 다음 수를 미리 확정해 공개하고, 한 턴에 여러 번 움직이며, 제한 턴
+안에 목표를 달성하는 방식이었습니다. 이 구조에서는 적이 플레이어의 수에 대응할 수 없어 위험한 수도 처벌받지 않았고,
+밸런스 시뮬레이션에서도 패배 원인 대부분이 "시간 초과"였습니다. 즉 상대가 아니라 시계와 싸우는 게임이었습니다.
 
-- **Board coordinates.** Squares are `0..63` (`rank * 8 + file`). The player is White at the bottom (ranks 1–2),
-  the enemy is Black at the top and moves toward rank 1.
-- **Strict reference mode.** `src/engine/chess` is a self-contained orthodox chess implementation (FEN, legal-move
-  filtering, castling-through-check rules, perft). It also exposes a king-capture variant used by the hot-seat
-  test board. Gameplay never uses strict mode (B3).
-- **PRNG.** sfc32 seeded by cyrb128, with named streams `map`, `offers`, `encounterGen`, `enemyAI`, `events`
-  derived independently from the run seed, so consuming one stream never shifts another (D6). `Math.random()` is
-  banned in `src/engine/**` and `src/data/**` via ESLint.
+새 버전은 증강체스(augmentchess.org)에서 영감을 받아 **정통 체스 + 증강 드래프트**로 다시 만들었습니다. 원칙은 다음과
+같습니다.
 
-## Turn structure, intents and resolution (M2)
+- **한 턴에 한 수.** 어떤 규칙이나 카드도 한 턴에 기물을 두 번 움직이게 하지 않습니다.
+- **상대는 실제로 수를 읽는다.** AI는 내 수를 본 뒤에 알파-베타 탐색으로 응수합니다.
+- **증강은 규칙을 비튼다.** 행마, 폰 규칙, 특수 기물, 지형, 승리 조건을 바꿉니다.
 
-- **Immutable state.** Engine operations copy the state's containers once (`beginDraft`), mutate the copy and
-  return it; pieces are always replaced, never mutated. Tests deep-freeze inputs to enforce this. Undo is a stack
-  of these snapshots for the current Player Turn.
-- **Time and durations.** Timed effects carry an expiry point (`turnStart`, `turnEnd`, `phaseStart`, `phaseEnd`
-  of a given turn). Enemy phase *n* follows Player Turn *n*. "Immobilized for its next enemy phase" applied during
-  Player Turn *n* expires at the end of enemy phase *n*; applied during enemy phase *n* it lasts through phase
-  *n + 1*. Status ticking (enemy phase step 3) removes everything whose expiry point has been reached.
-- **Action tokens.** The base action and every `EXTRA_ACTION` are tokens with optional restrictions (piece type,
-  specific piece, "a different piece", non-capturing). A move is paid by the *most restrictive* token that allows
-  it, so flexible tokens are saved. Unused tokens are discarded at End Turn.
-- **Auto end turn** is a setting (off by default) so that Undo stays useful on single-action turns; End Turn pulses
-  when no actions remain.
-- **Reserve deployment** may be used at any point during the Player Turn (not only before the first move).
-- **Intent resolution.** An intent executes if its destination is still among the piece's current legal moves,
-  capturing whatever player piece is there (Ward rules apply). Fizzle reasons: piece captured, piece immobilized,
-  destination consecrated, destination occupied, path blocked. Intents are planned sequentially on a hypothetical
-  board, so later intents assume earlier ones resolved.
-- **Ward consumption.** Temporary Wards are consumed before permanent ones (they would expire anyway).
-- **Blocked captures.** A Ward-blocked attacker stays on its origin square; path-crossing events have already
-  fired (it travelled and was repelled), but landing effects and promotion do not happen.
-- **En passant.** The player may capture en passant an enemy Pawn that advanced two squares from its home rank
-  during the previous enemy phase, at any point during the following Player Turn. Enemy Pawns never capture en
-  passant: their intents are committed before the player moves, so the situation cannot be planned. Only standard
-  two-square advances from the home rank create en passant chances (Double March pushes from other ranks do not).
-- **Castling** (player only): King and a Rook on the same rank, both unmoved this encounter, at least three files
-  apart, every square between empty. The King moves two squares toward the Rook, which lands on the square the King
-  crossed. This generalises orthodox castling to rearranged formations.
-- **Rubble** behaves like an enemy piece for move generation: capture-capable moves may enter it (clearing it),
-  it blocks slides, and clearing it is not a piece capture (no capture triggers).
-- **Reinforcements** arrive on telegraphed squares; if a square is occupied at arrival time the reinforcement is
-  delayed by one phase, so the player can block arrivals by occupying them.
-- **Enemy promotion** always produces a Queen.
+## 도전 (로그라이크 층)
 
-## Enemy planning
+정통 체스 + 증강 대국을 기본 단위로 두고, 그 위에 슬레이 더 스파이어식 구조를 얹었습니다. 이전 버전의 문제는
+로그라이크 구조가 아니라 대국이 퍼즐이었던 것이므로, 대국 자체는 그대로 진짜 대국입니다.
 
-- Sequential greedy planning: score every candidate move of every eligible enemy piece, take the best, apply it to
-  a hypothetical board, repeat with a different piece until N intents are planned. Scores combine capture value,
-  check threat on the player's King, profile goal progress, protection of the enemy King (a coarse 2-ply map of
-  squares the player could attack after one move) and 1-ply safety on arrival. Pieces currently attacked get a
-  bonus for moving to safety. Seeded jitter (< 0.5 points) breaks ties.
-- Committed intents can never respond to the player's next move, so the planner's King defence is prophylactic:
-  it moves the King away from squares the player could attack next turn.
+- **지도**: 막마다 8층 + 보스. 6개의 경로가 아래에서 위로 한 칸씩(좌우 최대 한 칸) 올라가며 서로 교차하지 않습니다.
+  1층은 대국, 5층은 보물, 8층은 휴식처로 고정하고, 나머지는 가중치(대국 46, 이벤트 24, 정예 13, 상점 9, 휴식 9)로
+  뽑습니다. 정예·상점·휴식처는 연달아 나오지 않고, 막마다 상점과 정예가 최소 하나 있습니다.
+- **증강 보상**: 이기면 3장 중 1장(건너뛰기 가능). 등급 확률은 노드와 막에 따라 다르며, 정예는 골드 이상, 보스는
+  프리즘입니다. 이미 가진 카드는 나오지 않습니다. 자유 대전의 대국 중 드래프트는 도전에서 쓰지 않습니다.
+- **증강 적용**: 도전에서는 대국 시작 시 양쪽 증강을 모두 적용합니다. "즉시" 효과(보호막 부여, 승격, 기물 배치)는
+  매 대국 시작 시 발동하고, 액티브 증강의 사용 횟수는 대국마다 다시 채워집니다. 대국 중에만 의미가 있는 `투자`와
+  `총동원령`은 도전 보상에서 제외합니다. 도전을 위해 기물을 배치하는 증강(선봉대, 용병 룩, 두 번째 여왕)을 추가했습니다.
+- **목숨과 패배**: 시작 목숨 3. 지면 1을 잃고, 일반·정예는 보상 없이 지나가며, 보스는 이길 때까지 다시 둡니다(무승부도
+  재도전). 일반 대국 무승부는 목숨을 잃지 않고 골드만 조금 받습니다. 보스를 이기면 목숨 +1.
+- **무르기는 자원**입니다. 도전 전체에서 3회로 시작하고 상점과 이벤트에서 얻습니다. 실수를 되돌릴 수 있되, 공짜는 아닙니다.
+- **적의 성장**: 플레이어는 이긴 만큼 증강이 쌓이므로, 적은 그보다 가파르게 강해집니다. 보통 난이도의 AI 레벨은
+  일반 1/2/3(2·3막 위층 +1), 정예 2/3/4, 보스 2/3/4이고, 쉬움은 -1, 어려움은 +1입니다. 일반 적의 무작위 증강은
+  0~1 / 2~3 / 4~5장, 정예는 2 / 4 / 6장, 보스는 고유 증강에 0 / 2 / 4장을 더합니다. 3막 적은 골드 이상 증강만 씁니다.
+- **밸런스 측정**: `npm run sim`은 봇이 도전 전체를 두는 시뮬레이션입니다. 초기 측정에서 1막 보스 `기병대장`
+  (낙타 도약 + 선봉대 + 징집)이 초급 봇을 2승 4패로 압도해 1막 보스의 고유 증강을 3장으로 줄였습니다. 또 플레이어가
+  증강 20~30개를 모으면 2·3막이 쉬워져, 위의 적 성장 곡선을 가파르게 잡았습니다. 시뮬레이션의 고급·마스터 AI는 속도
+  때문에 수당 120ms로 제한되어 실제(1.2초·3.2초)보다 약하므로, 실제 체감 난이도는 플레이 테스트로 조정해야 합니다.
 
-## Encounter generation and validation
+## 규칙
 
-- Templates (Skirmish, Fortress, Hunt, Last Stand, …) generate layouts procedurally; enemies never start on the
-  player's formation squares and terrain never lands on the deployment zone.
-- Validation follows D7. Playouts use a random-greedy policy that reads intents (dodge, block, bait, capture the
-  intending piece) and pursues the objective. Playouts stop early once at least one success has been found after
-  eight playouts; every executed playout is checked for a win within the first two turns. Up to 8 generation
-  attempts are made before falling back to the template's safe variant (validated for every act in tests).
+- **킹 포획 승리.** 증강(관통, 보호막, 동결, 함정 등)이 생기면 체크 판정이 복잡해지므로, 증강체스처럼 체크메이트 대신
+  킹을 잡으면 이깁니다. 킹을 내주는 수도 허용하되, UI가 빨간 점으로 경고합니다.
+- **스테일메이트는 패배.** 둘 수 있는 수가 없으면 그쪽이 집니다.
+- **캐슬링**은 정통 규칙 그대로입니다(공격받는 칸을 지나거나 체크 상태에서는 불가). 공격 판정은 증강 행마를 반영합니다.
+- **무승부**: 50수 규칙, 3회 동형 반복, 양쪽 모두 킹만 남은 경우(언덕의 왕 보유 시 제외).
 
-## Rule engine and first builds (M3)
+## 증강 드래프트
 
-- **Upgrade DSL.** Upgrades are `UpgradeDef` objects: hooks (event + condition + usage limit + effects), movement
-  modifiers (Layer B), promotion rules, roster effects and acquisition choices. Numbers that grow with stacks use
-  `NumExpr` (`base + perStack × stacks`, clamped). Every upgrade lists the primitives it uses.
-- **Custom effects** (D5 escape hatch, all tested): `chainPromotion`, `phalanxWards`, `swarmTide`, `twinBishops`,
-  `diagonalDominion`, and the predicate `targetAttackedByOtherBishop`. Implementations live in
-  `src/engine/effects/custom.ts` with a doc string each.
-- **Saturating upgrades** declare `maxUsefulStacks` (e.g. Early Promotion stops at rank 4, Veteran Pawn's threshold
-  stops at 1). Offers skip an upgrade only once further stacks would do nothing — this is not a cap on builds.
-- **Prerequisites** ("own 2+ Bishop upgrades") count stacks of upgrades carrying that tag.
-- **Long Cathedral** triggers *once per Bishop per turn*. As written, two Bishops on open diagonals could pass
-  extra actions back and forth forever; D4 requires loop-capable upgrades to carry their own "once per turn/piece"
-  wording. N Bishops still give up to N + 1 moves per turn, so the effect scales with the build.
-- **Long Cathedral, Consecrated Diagonal** only count real moves (not free REPOSITIONs such as Bishop Recall).
-- **Consecrated Diagonal** consecrates the squares *crossed* (strictly between origin and destination), never the
-  Bishop's own landing square. Duration: until the end of your next turn, +1 turn per extra stack.
-- **Bishop Battery** stack 1 grants a Bishop-only action (stack 2+ makes it unrestricted, per the brief). "Also
-  attacked" is evaluated on the board before the capturing move.
-- **Bishop Recall** and **Knight Gate** are player choices encoded as move variants: the UI asks when a
-  destination has more than one variant (like promotion).
-- **Chain Promotion** advances the most advanced other Pawns *that are able to advance*, and a Pawn promoted by the
-  chain becomes the same piece type as the triggering promotion (promote to Bishops, chain into Bishops).
-- **Phalanx** stack 2 adds "diagonal-behind" support: a Pawn with an allied Pawn diagonally behind it.
-- **Swarm Tide**: divisor = max(2, 5 − stacks), counted from Pawns on the board at turn start.
-- **Twin Bishops** checks Bishops on the board at encounter start (Bishops in Reserve neither count nor gain Wards).
-- **Diagonal Dominion**'s Crimson squares last until the start of your next turn, i.e. through the enemy phase.
-- **Open File** pierces only along the file the Rook stands on (vertical moves).
-- **Rook Rails** cover a whole rank or file; a Rook pierces 1 allied piece when moving along a rail it stands on.
-  Multiple rails on the same line stack.
-- **New roster pieces** take a free formation square in the deployment zone (Pawns prefer the front, pieces the
-  back rank), otherwise they wait in Reserve.
+- 게임 시작, 10수째, 20수째(백의 차례 직전)에 양쪽이 각자 세 장 중 한 장을 고릅니다.
+- 라운드마다 등급을 한 번 추첨해 양쪽이 **같은 등급**을 받습니다. 확률(실버/골드/프리즘)은 1라운드 60/35/5,
+  2라운드 30/50/20, 3라운드 15/45/40입니다. `투자` 카드만 자기 다음 등급을 한 단계 올립니다.
+- 새로고침은 게임당 1회입니다. 제시와 등급은 시드에서 결정되므로 한 판은 액션 목록만으로 그대로 재현됩니다.
+- AI 대전에서는 AI가 사람이 고른 뒤에 고르고, 두 선택을 함께 공개합니다.
 
-## Run structure (M4)
+## 카드 설계 규칙
 
-- **Rows per act.** "~7 rows" conflicts with "5–6 combats, 1–2 elites and 2–3 non-combat nodes on every path"
-  (at least 8 nodes). Maps use 9 rows plus the boss row (data: `ACTS[].rows`), which allows every legal
-  composition (5/1/3, 5/2/2, 6/1/2). Generation picks a valid per-row pattern, then varies individual nodes only
-  when every path through them stays valid. Rows 1–2 are combats; elites never appear before row 4; each act has
-  at least one Shop.
-- **Seeds.** Each map node carries a stable seed (`runSeed|nodeId`); encounters, boss retries ("same seed
-  variant") and node content derive from it. Offers use the `offers` stream, events the `events` stream, maps the
-  `map` stream.
-- **Offers.** Offer weight = rarity weight × (1 + 0.5 × stacks of owned upgrades sharing an archetype tag). Generic
-  mechanical tags (`capture`, `movement`, `extra_action`, `defense`, `roster`) do not drive weighting. The most-owned
-  tag is computed over archetype tags; ties resolve in a fixed tag order. Elites force one Rare+ offer; bosses offer
-  Rare/Legendary only. Upgrades whose acquisition is impossible (e.g. Advanced Bishop without a Bishop) are skipped.
-- **Rewards can be skipped.** Taking nothing is always allowed.
-- **Gold.** Base (10/15/20) + 2 × unused turns, where unused = T − the turn the objective completed. Survival and
-  Defense (which cannot finish early) give +5 flat. Elites ×1.5, bosses ×2, rounded.
-- **Shop prices.** Upgrades 30/45/65/95 by rarity (+10% per act after the first), Pawn 12, Knight/Bishop 35,
-  Rook 50, Crown 55, lift a curse 60, reroll 15 after the free one.
-- **Starting-position upgrades.** Advanced Bishop moves a Bishop to rank 3 on its file (nearest free rank-3 square
-  if needed). Forward Knight takes any empty rank-3/4 square. Castled Start chooses kingside (K g1, R f1) or
-  queenside (K c1, R d1). Forward Deployment adds rank 3; each stack from the second adds 2 chosen rank-4 squares.
-  Open Center removes the Pawns standing on the d- and e-files of the formation. Pieces moved by these upgrades
-  are locked; displaced pieces swap into the vacated square.
-- **Formation editor.** Any unlocked piece may move inside the deployment zone or to Reserve; the King must stay on
-  the board.
-- **Board mutations** are placed on ranks 1–6; different square types may share a square, the same type may not.
-  Knight Gates link the two chosen squares; Rook Rails choose a rank (1–6) or a file.
-- **Saves.** Versioned JSON (`schema`) with a migration chain; the per-turn undo stack is never saved. Autosave after
-  every run action except mid-turn encounter actions, i.e. after every node and every End Turn.
-- **Replays.** `RunState.actions` records every run action; replaying them from the seed reproduces the identical
-  state hash (tested).
-- **The Fortress King.** Act I boss: King in a corner with a two-pawn shield, Rook, Knight, Bishop and a broken
-  rampart; T = 12 (11 before M6 tuning). Its Sanctuaries (2 every 3 turns, telegraphed a turn ahead) grant a Ward to an enemy piece
-  standing on them at the start of your turn, and **crumble once that Ward blocks a capture**. Without the crumble,
-  a King on a Sanctuary is uncapturable with one action per turn — a boss that disables builds instead of pressuring
-  them.
-- **Headless simulation.** `simulateRun` plays whole runs through the same reducer with a bot that reads intents
-  (it targets where the enemy King is *going*), values the extra actions/Wards its build generates, and leans on the
-  pieces its upgrades improve. It is the balance instrument for M4/M6 acceptance tests.
+- **패시브**는 고르는 즉시 규칙에 합쳐집니다(`SideRules`). 일부는 즉시 효과가 있습니다(보호막 부여, 비숍 승격, 폰 충원).
+- **액티브**는 자기 턴에 수를 두기 전 무료로 씁니다(증강체스와 같음). 단, 한 턴에 한 장이며 **기물을 움직이지 않습니다**.
+- **소환 직후 행동 불가.** 소환하거나 되살린 기물은 그 턴에 움직일 수 없습니다. 이 규칙이 없으면 AI 대국에서 되살린 퀸이
+  같은 턴에 열린 줄로 킹을 잡아 버리는 일이 실제로 나왔습니다.
+- **보호막**은 기물이 제거될 때(잡힘, 저격, 함정, 순교) 한 번 대신 깨집니다. 잡으려던 기물은 제자리에 남습니다.
+- **동결**은 주인의 다음 턴 한 번 동안 이동과 공격을 막습니다. 킹은 동결할 수 없습니다.
+- **바리케이드**는 3~6번째 줄에만 세울 수 있고, 어떤 기물이든 잡듯이 들어가 부술 수 있어 영구적인 봉쇄가 생기지 않습니다.
+- **함정**은 양쪽에 보입니다. 상대 기물(킹 제외)이 들어오면 제거되고, 킹은 함정만 해제합니다.
+- **특수 기물**: 대주교(비숍 + 나이트), 재상(룩 + 나이트). 아마존(퀸 + 나이트)은 기물 종류가 아니라 퀸의 행마 증강이라,
+  나중에 승진하는 퀸에도 적용됩니다.
 
-## Full run content (M5)
+## 엔진
 
-- **Upgrade roster (C1–C8).** 50 upgrades: Pawn 8, Bishop 9, Knight 5, Rook 5, Queen/King 5, board mutations 8,
-  starting position 5, enemy debuffs 5. Interpretations of the new ones:
-  - **Fork Engine** counts enemy pieces attacked from the landing square; the extra action is for a *non-Knight*
-    piece, so Knights cannot loop on their own forks.
-  - **Momentum Knight**: "moved on your previous turn" means the same Knight made at least one move during the
-    previous Player Turn. The follow-up is a free move by that Knight (stack 1: non-capturing; stack 2: may
-    capture), once per Knight per turn.
-  - **Landing Shock** immobilizes the (up to 8) enemy pieces adjacent to the landing square for the next N enemy
-    phases (N = stacks).
-  - **Royal Fork** fires when, after a Knight move, the Knight attacks the enemy King and at least one other enemy
-    piece; it captures the most valuable other attacked piece (ties: lowest square). The Knight does not move and
-    Ward rules apply.
-  - **Open File**: "no Pawns" means no Pawn of either side on the Rook's file; the pierce only applies to moves
-    along that file.
-  - **Rook Battery**: aligned = same rank or file with no piece or terrain between; the nearest aligned allied Rook
-    gains the actions, usable only by itself.
-  - **Siege Engine** counts, per (Rook, target) pair, consecutive *Player Turn ends* at which the Rook attacks the
-    target; at max(1, 3 − stacks) the target is *besieged* (badge) and the Rook captures it at the start of your
-    next turn if it still attacks it (the Rook stays; Ward rules apply).
-  - **Queen's Gambit** stores pierce charges on your Queens (+stacks per allied piece lost); a Queen's next move
-    may pierce that many pieces and spends all of her charges.
-  - **War King**'s range applies to all eight directions; its capture Ward is permanent. **Royal Guard** Wards
-    expire at the end of the enemy phase.
-  - **Tyrant Queen** (upgrade) counts your non-Pawn, non-King pieces on the board at turn start (Reserve
-    excluded).
-  - **Debuffs** use the encounter's RNG stream: Cracked Formation never removes a marked target; Delayed
-    Reinforcement never delays the King, a boss or a target and brings the piece back (with its tags and Wards)
-    in enemy phase 2, so it is on the board for Player Turn 3 (delayed further if its square is blocked). Slow
-    Command applies to bosses too. Heavy Queen also limits promoted and boss Queens.
-- **New encounter templates.** *Pawn Race* (PROMOTION_RACE) needs one promotion in every act; the countdown
-  equals the turn limit (8/8/9); 3/4/4–5 enemy Pawns start on ranks 6–7, screened by 2/3/4 pieces in
-  Acts I/II/III. *Breakout* (ESCAPE) designates the escapee by preference Knight > Bishop > Rook > Queen > Pawn;
-  three exits sit on rank 8 (M5 used two in Act III; see M6). The validator's reachability check for ESCAPE only
-  measures the escapee, with real move geometry (a Knight next to an exit is not "one move away").
-- **Chained intents.** A boss rule may give one piece several intents per phase. They are planned one after
-  another on the hypothetical board (so step 2 starts where step 1 ends) and previewed the same way. **A piece
-  whose step fails — fizzles, or is repelled by a Ward — abandons the rest of its route** ("route broken"),
-  instead of attempting later steps from the wrong square. This makes "block one step" a real answer and keeps
-  the preview honest.
-- **The Tyrant Queen** (Act II): the Queen's court hems her in (only the d-file is open, its Pawn already on d5),
-  so her opening routes are short and readable. Her route grows 1 → 2 → 3 steps over the first three turns,
-  then stays at 3; the court shares one intent. She starts with **3 Wards and loses one every time her route
-  breaks** ("she stumbles"). While warded she plays boldly (a hit only costs a Ward); bare, she is as careful
-  as a King. Tuning history: with no Ward she fell to the first block (bot, unupgraded army: 12/12 by turn 4);
-  with a permanent Ward the bot never landed the second hit (0/12); with the stumble rule and 2 Wards the
-  unupgraded bot won 10/12; run simulations (M6) then showed upgraded armies beating her almost always, so she
-  got a third Ward.
-- **The Pawn Emperor** (Act III): a full court behind an unbroken wall of 8 Pawns (+2 advanced), the Emperor
-  (King) with 1 Ward, 2 enemy actions, T = 12. Every enemy phase it summons the Pawns telegraphed the phase before
-  (1–2 on free rank-7 squares, spilling onto rank 6 when rank 7 is full); a countdown from 8 turns every enemy
-  Pawn into a Queen at 0, then restarts.
-- **Boss safety.** The enemy planner values a boss piece's safety like its King's (a boss captured is an
-  encounter lost); marked targets get a smaller premium. Without it the Tyrant Queen happily traded herself for a
-  Rook.
-- **Bot look-ahead** (validator playouts and balance sims, never the enemy): the bot now resolves Ward-blocked
-  captures as the rules do (no phantom wins against warded bosses), re-simulates chained intents in order when its
-  move interferes with a route, checks one ply beyond the committed intents (will the enemy be attacking its King,
-  and can the King step away?), and in races backs a single runner instead of spreading Pawn moves.
-- **Run statistics** add fizzles, enemy immobilizations and Ward blocks; save schema 2 migrates older saves by
-  zero-filling them.
+- 64칸 배열과 정수 기물 코드를 쓰고, 모든 변경은 저널에 기록해 `push/pop`으로 정확히 되돌립니다. 그래서 순교·함정·보호막
+  같은 연쇄 효과도 탐색 중에 안전하게 착수와 무르기를 할 수 있습니다.
+- 증강이 없을 때 정통 체스 퍼프트 값(시작 국면 깊이 4 = 197,281, Kiwipete 깊이 3 등)과 일치하고, 기존 기준 구현과 무작위
+  대국 수천 국면에서 행마 목록과 FEN이 같음을 테스트합니다.
 
-## Polish and balance (M6)
+## AI
 
-- **Balance instrument.** `npm run balance` (engine module `run/balance.ts`, loaded through Vite's SSR loader so no
-  extra tooling is needed) plays seeded runs per bot policy and reports run wins, where runs end, loss rate and
-  loss reason per encounter template × act (elites starred), boss results and the most taken upgrades. Latest
-  numbers: [`docs/BALANCE.md`](./docs/BALANCE.md). The four policies are deliberately narrow (Pawn-only,
-  Bishop-only, mutations/debuffs-only, "best rarity"), so they bracket real players rather than model them.
-- **What the simulation changed** (40 seeds × 4 policies; full-run wins went from 60/5/10/38% to
-  78/40/38/55% for pawn/bishop/board/any):
-  - Almost every loss was "turn limit reached", not a lost King: Acts I–II turn limits are now 7–8 (were 6–7) and
-    the Fortress King allows 12 turns (was 11). Elites get `ACTS[].eliteTurnBonus` (+1) on timed objectives —
-    they hit harder, so they also allow a little longer — but never on hold-out objectives.
-  - *Breakout* keeps three exits in every act, gets +1 turn from Act II, and its runner carries 1 Ward from Act II
-    (hunters gang up on it).
-  - *Last Stand* never lost an encounter (0% over hundreds of plays): the enemy could not reach a King inside a
-    full formation. It is now an **ambush**: telegraphed ambushers drop onto ranks 3–4 near the player's King
-    every phase (occupying a drop square delays that arrival), T = 6/7/7. **King hunters net the King**: once an
-    intent strikes the King's square, the following intents aim at the squares it could step to (a second strike
-    on a boxed-in King is decisive). The validator now rejects hold-out encounters that an idle player survives.
-    Bots still survive most ambushes — their King keeps finding a square — but the formation gets torn apart,
-    and doing nothing loses.
-  - The Tyrant Queen got a third Ward (see M5).
-  - Bot fixes the numbers exposed (validator playouts and simulation only, never the enemy): an urgency factor
-    makes the objective dominate as the clock runs down (a Pawn build kept promoting Queens instead of moving its
-    Breakout runner), and build affinity counts less in races and escapes, where one specific piece wins.
-- **Known gaps** (see the report): Bishop-only runs still lose about half their Act II Fortresses (walls close
-  diagonals — terrain is the intended counter to a build, B5), mutation/debuff-only runs struggle against the
-  Tyrant Queen and the Pawn Emperor (no extra actions to answer several threats a turn), and Act III elites lose
-  about half the time on small samples. None of these is a hard wall for a mixed build (`any`: 55% full-run wins).
-- **Tuning via data.** Act tuning (`src/data/acts.ts`), the economy — prices, gold per unused turn, multipliers,
-  Crowns (`src/data/economy.ts`), enemy behaviour-profile weights and the net bonus (`src/data/profiles.ts`),
-  templates and bosses. The engine reads these; no balance number lives in engine code.
-- **Juice (F5).** Effects are *derived from the difference between two displayed frames* — the new combat-log
-  entries plus piece changes (`src/state/fx.ts`) — so an animation can never disagree with the log. Long Bishop
-  moves draw a progressive golden diagonal trail with sparks (other long slides a fainter one); captures burst;
-  every trigger pulses its squares and pops a short label, chained triggers one after another (110 ms apart at 1×)
-  in resolution order; Ward blocks and fizzles get their own pulse; promotion flashes the board and the piece
-  pops as it transforms (mass promotions flash red); pieces drop onto the board when they appear (deployment,
-  reinforcements, spawns) in a quick wave; extra actions get a spinning gold ring, a "+N actions" label and the
-  new token pops in. Popups on one square stack. Everything scales with the speed setting (2× halves durations),
-  is skipped with the rest of the playback (Space / Skip) and is never mounted at Instant.
-- **No input lag.** The first frame of an action is shown immediately; only the rest of the playback is paced.
-- **Visual build identity (F4).** Pieces are never replaced. On top of the aura and base rings (which grow with
-  the upgrades touching the piece type): small **sigils** in the corner for each kind of power those upgrades grant
-  (new movement, pierce, extra actions, Wards, immobilize, promotion rules, reposition; at most three), a **board
-  aura** in the colour of the dominant archetype (3+ stacks; violet for 4+ board mutations), and a **Pawn swarm**
-  of 10+ Pawns marches in place, out of step. Bishop runs leave light trails.
-- **Piece inspection (F2).** A compact view (rarity-coloured chips, inactive conditions dimmed, counters such as
-  Zeal inline) and a detailed view (every modifier with its rules text, the square effects under the piece and
-  their texts), toggled by *Details* or `I` and remembered. The header counts modifiers (and how many are
-  active) and lists the piece's kinds of power.
+- 네가맥스 PVS, 반복 심화, 전치표, 정지 탐색, 널 무브 가지치기, 늦은 수 축소, 킬러와 히스토리 수 정렬을 씁니다.
+- 체크 연장은 반복 깊이의 두 배 플라이까지만 허용합니다. 킹 포획 규칙에서는 양쪽 킹이 모두 노출되면 체크가 끝없이
+  이어져 탐색이 폭발했기 때문입니다.
+- 평가: PeSTO 기물 가치와 위치 점수에 증강 보정(강화된 행마, 보호막, 조기 승진, 언덕까지의 거리, 체크 횟수)을 더합니다.
+- 카드 사용: 사용 가능한 모든 카드와 대상을 얕게 탐색해서, 기준보다 일정 이상 나아지는 경우에만 씁니다.
+- 난이도: 입문·초급·중급은 고정 깊이로 읽고 점수에 잡음을 섞어 실수합니다. 고급(약 1.2초)과 마스터(약 3.2초)는 시간
+  제한 안에서 최대한 깊이 읽습니다(중반 기준 7~9수).

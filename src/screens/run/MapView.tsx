@@ -1,137 +1,139 @@
-import { useMemo, useState } from 'react';
-import { reachableNodes } from '../../engine/run/map';
-import type { MapNode, RunState } from '../../engine/run/types';
-import { TEMPLATES } from '../../data/encounters';
-import { BOSSES } from '../../data/bosses';
-import { actTuning } from '../../data/acts';
+import { useEffect, useRef } from 'react';
 import { NodeIcon } from '../../components/run/NodeIcon';
-import { NODE_COLOR, NODE_LABEL } from '../../components/run/nodeMeta';
+import { NODE_COLOR } from '../../components/run/nodeColors';
+import { bossById } from '../../engine/run/content';
+import { nextNodes } from '../../engine/run/reducer';
+import { NODE_NAME, type MapNode, type NodeType, type RunState } from '../../engine/run/types';
+import { useRun } from '../../state/runStore';
 
-const ROW_H = 74;
-const WIDTH = 560;
+const ROW_H = 78;
+const TOP = 120;
+const BOTTOM = 40;
 
-function describeNode(n: MapNode): { title: string; text: string } {
-  if (n.type === 'boss') {
-    const b = BOSSES[n.templateId ?? ''];
-    return { title: b?.name ?? 'Boss', text: b?.description ?? 'The act boss.' };
-  }
-  if (n.type === 'combat' || n.type === 'elite') {
-    const t = TEMPLATES.find((x) => x.id === n.templateId);
-    return {
-      title: `${NODE_LABEL[n.type]} · ${t?.name ?? ''}`,
-      text: `${t?.blurb ?? ''}${n.type === 'elite' ? ' Elites bring extra actions or enemy affixes, and a Rare reward.' : ''}`,
-    };
-  }
-  const text: Record<string, string> = {
-    upgrade: 'Choose 1 of 3 upgrades.',
-    shop: 'Spend gold on upgrades, pieces, squares or a Crown. One free reroll.',
-    mutation: 'Choose 1 of 3 board mutations and place it.',
-    recruit: 'Choose 1 of 3 pieces to add to your roster.',
-    event: 'A scripted choice with trade-offs.',
-    sacrifice: 'Permanently give up a piece (or accept a curse) for a powerful reward.',
+/** Small stable horizontal wobble per node so the map does not look like a grid. */
+const wobble = (id: string): number => {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return ((h % 5) - 2) * 0.6;
+};
+
+export function MapView({ run }: { run: RunState }) {
+  const act = useRun((s) => s.act);
+  const map = run.map;
+  const next = new Set(nextNodes(run));
+  const height = TOP + map.rows * ROW_H + BOTTOM;
+  const scroller = useRef<HTMLDivElement>(null);
+  const x = (n: MapNode) => ((n.col + 0.5) / map.cols) * 100 + wobble(n.id);
+  const y = (n: MapNode) => height - BOTTOM - n.row * ROW_H - ROW_H / 2;
+  const bossY = TOP / 2;
+  const nodes = Object.values(map.nodes);
+  const boss = bossById(map.boss);
+  const currentRow = run.current && run.current !== map.bossId ? map.nodes[run.current].row : -1;
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const target = height - BOTTOM - (currentRow + 1) * ROW_H - el.clientHeight / 2;
+    el.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  }, [currentRow, height]);
+
+  const enter = (id: string) => {
+    if (next.has(id)) act({ type: 'enter', node: id });
   };
-  return { title: NODE_LABEL[n.type], text: text[n.type] ?? '' };
-}
-
-export function MapView({ run, onChoose }: { run: RunState; onChoose: (id: string) => void }) {
-  const [hover, setHover] = useState<MapNode | null>(null);
-  const reachable = useMemo(() => new Set(reachableNodes(run.map, run.at).map((n) => n.id)), [run.map, run.at]);
-  const rows = run.map.rows + 1;
-  const height = rows * ROW_H + 30;
-  const pos = (n: MapNode) => ({ x: 40 + n.x * (WIDTH - 80), y: height - 30 - n.row * ROW_H });
-  const byId = new Map(run.map.nodes.map((n) => [n.id, n]));
-  const visitedEdges = new Set<string>();
-  for (let i = 1; i < run.visited.length; i++) visitedEdges.add(`${run.visited[i - 1]}>${run.visited[i]}`);
-  const info = hover ? describeNode(hover) : null;
+  const visited = new Set(run.visited);
+  const edgeTaken = (a: string, b: string) => {
+    const i = run.visited.indexOf(a);
+    return i >= 0 && run.visited[i + 1] === b;
+  };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 lg:flex-row lg:items-start">
-      <div className="panel relative w-full max-w-[600px] overflow-hidden p-2">
-        <div className="pointer-events-none absolute inset-x-0 top-3 text-center font-display text-sm uppercase tracking-[0.3em] text-ink-400">
-          Act {run.act} — {actTuning(run.act).feel}
-        </div>
-        <svg viewBox={`0 0 ${WIDTH} ${height}`} className="h-auto w-full">
-          {run.map.nodes.flatMap((n) =>
-            n.next.map((id) => {
-              const to = byId.get(id)!;
-              const a = pos(n);
-              const b = pos(to);
-              const walked = visitedEdges.has(`${n.id}>${id}`);
-              const open = run.at === n.id && reachable.has(id);
-              return (
-                <line
-                  key={`${n.id}-${id}`}
-                  x1={a.x}
-                  y1={a.y}
-                  x2={b.x}
-                  y2={b.y}
-                  stroke={walked ? '#e8c46a' : open ? '#a497b6' : '#3d3349'}
-                  strokeWidth={walked ? 4 : 2.5}
-                  strokeDasharray={walked || open ? undefined : '6 6'}
-                />
-              );
-            }),
-          )}
-          {run.map.nodes.map((n) => {
-            const p = pos(n);
-            const isReachable = reachable.has(n.id) && !run.encounter && !run.pending;
-            const visited = run.visited.includes(n.id);
-            const current = run.at === n.id;
-            const r = n.type === 'boss' ? 30 : 21;
+    <div className="flex flex-col gap-3">
+      <div ref={scroller} className="panel relative max-h-[70vh] overflow-y-auto overflow-x-hidden">
+        <div className="relative mx-auto w-full max-w-[640px]" style={{ height }}>
+          <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 100 ${height}`} preserveAspectRatio="none">
+            {nodes.map((n) =>
+              n.next.map((m) => {
+                const to = m === map.bossId ? null : map.nodes[m];
+                const x2 = to ? x(to) : 50;
+                const y2 = to ? y(to) : bossY + 34;
+                const taken = edgeTaken(n.id, m);
+                const live = run.current === n.id && next.has(m);
+                return (
+                  <line
+                    key={`${n.id}-${m}`}
+                    x1={x(n)}
+                    y1={y(n)}
+                    x2={x2}
+                    y2={y2}
+                    stroke={taken ? '#e8c46a' : live ? '#f3d98f' : '#55486a'}
+                    strokeWidth={taken || live ? 2.2 : 1.4}
+                    strokeDasharray={taken ? undefined : '3 4'}
+                    vectorEffect="non-scaling-stroke"
+                    opacity={taken || live ? 1 : 0.7}
+                  />
+                );
+              }),
+            )}
+          </svg>
+          {/* Boss */}
+          <button
+            type="button"
+            onClick={() => enter(map.bossId)}
+            disabled={!next.has(map.bossId)}
+            className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 rounded-2xl border-2 px-4 py-2 transition ${
+              next.has(map.bossId) ? 'pulse-gold cursor-pointer border-blood-400 bg-blood-600/40' : 'border-blood-600/60 bg-ink-900/80'
+            }`}
+            style={{ left: '50%', top: bossY }}
+            title={boss.blurb}
+          >
+            <NodeIcon type="boss" className="h-9 w-9 text-blood-300" />
+            <span className="text-sm font-bold text-blood-300">보스 · {boss.name}</span>
+          </button>
+          {nodes.map((n) => {
+            const isNext = next.has(n.id);
+            const isCur = run.current === n.id;
+            const seen = visited.has(n.id);
             return (
-              <g
+              <button
                 key={n.id}
-                transform={`translate(${p.x}, ${p.y})`}
-                className={isReachable ? 'cursor-pointer' : ''}
-                onMouseEnter={() => setHover(n)}
-                onMouseLeave={() => setHover(null)}
-                onClick={() => isReachable && onChoose(n.id)}
+                type="button"
+                disabled={!isNext}
+                onClick={() => enter(n.id)}
+                title={NODE_NAME[n.type]}
+                className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 transition ${
+                  isCur
+                    ? 'border-gold-300 bg-gold-500/30 shadow-[0_0_14px_rgba(232,196,106,0.7)]'
+                    : isNext
+                      ? 'pulse-gold cursor-pointer border-gold-400 bg-ink-800 hover:scale-110'
+                      : seen
+                        ? 'border-gold-600/70 bg-ink-800/80'
+                        : 'border-ink-600 bg-ink-900/90'
+                }`}
+                style={{ left: `${x(n)}%`, top: y(n), color: NODE_COLOR[n.type], opacity: isNext || isCur || seen ? 1 : 0.62 }}
               >
-                {isReachable ? (
-                  <circle r={r + 7} fill="none" stroke={NODE_COLOR[n.type]} strokeWidth={2} opacity={0.8}>
-                    <animate attributeName="r" values={`${r + 4};${r + 9};${r + 4}`} dur="1.6s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.6s" repeatCount="indefinite" />
-                  </circle>
-                ) : null}
-                <circle
-                  r={r}
-                  fill={visited ? '#2e2639' : '#1b1622'}
-                  stroke={current ? '#e8c46a' : visited ? '#7a6c8f' : NODE_COLOR[n.type]}
-                  strokeWidth={current ? 4 : 2.5}
-                  opacity={!visited && !isReachable && run.visited.length > 0 && n.row <= (byId.get(run.at ?? '')?.row ?? -1) ? 0.35 : 1}
-                />
-                <foreignObject x={-r * 0.62} y={-r * 0.62} width={r * 1.24} height={r * 1.24} className="pointer-events-none">
-                  <NodeIcon type={n.type} className="h-full w-full" />
-                </foreignObject>
-              </g>
+                <NodeIcon type={n.type} className="h-6 w-6" />
+              </button>
             );
           })}
-        </svg>
+        </div>
       </div>
-      <div className="panel w-full max-w-sm p-4 lg:sticky lg:top-4">
-        {info ? (
-          <>
-            <div className="font-display text-lg text-gold-300">{info.title}</div>
-            <p className="mt-1 text-sm text-ink-200">{info.text}</p>
-          </>
-        ) : (
-          <>
-            <div className="font-display text-lg text-gold-300">Choose your path</div>
-            <p className="mt-1 text-sm text-ink-200">
-              The whole act is visible. Every path holds 5–6 combats, 1–2 elites and 2–3 other nodes before the boss. Hover a node for
-              details; glowing nodes are reachable.
-            </p>
-          </>
-        )}
-        <ul className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-ink-300">
-          {(['combat', 'elite', 'upgrade', 'shop', 'mutation', 'recruit', 'event', 'sacrifice', 'boss'] as const).map((t) => (
-            <li key={t} className="flex items-center gap-1.5">
-              <NodeIcon type={t} className="h-4 w-4" />
-              {NODE_LABEL[t]}
-            </li>
-          ))}
-        </ul>
-      </div>
+      <Legend />
+    </div>
+  );
+}
+
+function Legend() {
+  const types: NodeType[] = ['battle', 'elite', 'event', 'shop', 'rest', 'treasure'];
+  return (
+    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-ink-300">
+      {types.map((t) => (
+        <span key={t} className="flex items-center gap-1">
+          <span style={{ color: NODE_COLOR[t] }}>
+            <NodeIcon type={t} className="h-4 w-4" />
+          </span>
+          {NODE_NAME[t]}
+        </span>
+      ))}
     </div>
   );
 }

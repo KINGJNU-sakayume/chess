@@ -1,147 +1,141 @@
-import type { Sq } from '../core/coords';
-import type { PieceType } from '../core/pieces';
-import type { EncounterState, ObjectiveType, OwnedUpgrade } from '../core/state';
-import type { PlayerActionInput } from '../encounters/flow';
-import type { PlacedMutation } from '../encounters/setup';
-import type { StreamStates } from '../rng/rng';
-import type { RosterPiece } from './roster';
+/**
+ * A roguelike run: three acts of branching maps (Slay the Spire style).
+ * Augments are kept for the whole run and brought into every game; after a
+ * win you pick one of three more. Losing a game costs a life.
+ */
+export type Difficulty = 0 | 1 | 2;
+export const DIFFICULTY_NAME: Readonly<Record<Difficulty, string>> = { 0: '쉬움', 1: '보통', 2: '어려움' };
 
-/** Persistent run state (B7–B9, G1). Pure data: serializable as JSON. */
+export type NodeType = 'battle' | 'elite' | 'event' | 'shop' | 'rest' | 'treasure' | 'boss';
 
-export const RUN_SCHEMA_VERSION = 2;
-
-export type NodeType = 'combat' | 'elite' | 'upgrade' | 'shop' | 'mutation' | 'recruit' | 'event' | 'sacrifice' | 'boss';
-
-export const NON_COMBAT: readonly NodeType[] = ['upgrade', 'shop', 'mutation', 'recruit', 'event', 'sacrifice'];
+export const NODE_NAME: Readonly<Record<NodeType, string>> = {
+  battle: '대국',
+  elite: '정예',
+  event: '이벤트',
+  shop: '상점',
+  rest: '휴식처',
+  treasure: '보물',
+  boss: '보스',
+};
 
 export interface MapNode {
   id: string;
+  /** 0 = first floor. */
   row: number;
-  /** Horizontal layout position in [0, 1]. */
-  x: number;
+  col: number;
   type: NodeType;
-  /** Ids of reachable nodes in the next row. */
   next: string[];
-  /** Encounter template (combat/elite/boss) — shown on the map. */
-  templateId?: string;
-  objective?: ObjectiveType;
-  /** Stable seed for whatever happens at this node. */
-  seed: string;
 }
 
 export interface ActMap {
   act: number;
   rows: number;
-  nodes: MapNode[];
+  cols: number;
+  nodes: Record<string, MapNode>;
+  /** Nodes on the first floor. */
+  starts: string[];
+  bossId: string;
+  /** Boss definition id. */
+  boss: string;
 }
 
-export interface RecruitOffer {
+export interface RunAugment {
   id: string;
-  label: string;
-  pieces: PieceType[];
+  /** Extra uses per game (active cards forged at rest sites). */
+  bonus: number;
+}
+
+export type EnemyKind = 'battle' | 'elite' | 'boss';
+
+export interface EnemyDef {
+  name: string;
+  kind: EnemyKind;
+  /** AI level 1..5. */
+  level: number;
+  augments: string[];
+  blurb: string;
+  /** Archetype or boss id (portrait). */
+  look: string;
+  /** Gold multiplier on victory (ambushes). */
+  goldMul?: number;
+}
+
+export type RunPhase = 'start' | 'map' | 'prebattle' | 'battle' | 'reward' | 'shop' | 'rest' | 'event' | 'treasure' | 'victory' | 'defeat';
+
+export interface RewardOffer {
+  title: string;
+  cards: string[];
+  gold: number;
 }
 
 export interface ShopItem {
-  kind: 'upgrade' | 'piece' | 'crown' | 'removeCurse';
-  id: string;
-  label: string;
+  kind: 'card' | 'heal' | 'undo';
+  card?: string;
   price: number;
-  sold?: boolean;
-  pieces?: PieceType[];
+  sold: boolean;
 }
 
-/** A choice the player must make before returning to the map. */
-export type Pending =
-  | { kind: 'reward'; source: 'combat' | 'elite' | 'boss' | 'upgrade' | 'sacrifice' | 'event'; offers: string[]; gold: number; crown: boolean }
-  | { kind: 'mutationOffer'; offers: string[] }
-  | { kind: 'recruit'; offers: RecruitOffer[] }
-  | { kind: 'place'; upgradeId: string; step: PlaceStep; resume?: Pending }
-  | { kind: 'shop'; items: ShopItem[]; rerolls: number }
-  | { kind: 'event'; eventId: string }
-  | { kind: 'sacrifice'; stage: 'choose' | 'reward'; offers: string[] }
-  | { kind: 'defeat'; nodeId: string; boss: boolean; reason: string };
-
-export type PlaceStep =
-  | { kind: 'squares'; square: string; count: 1 | 2; shape: 'single' | 'pair' }
-  | { kind: 'line' }
-  | { kind: 'piece'; pieceType: PieceType; then: 'advanceToRank3' | 'chooseSquareRank34' }
-  | { kind: 'pieceSquare'; rosterId: string }
-  | { kind: 'castledSide' }
-  | { kind: 'rank4'; count: number };
+export interface EventState {
+  id: string;
+  /** Outcome text once a choice was made. */
+  result: string | null;
+}
 
 export interface RunStats {
-  encountersWon: number;
-  encountersLost: number;
-  turnsPlayed: number;
-  captures: number;
-  promotions: number;
-  bishopLongMoves: number;
-  longestBishopMove: number;
-  movesByType: Partial<Record<PieceType, number>>;
-  extraActions: number;
-  goldEarned: number;
-  fizzles: number;
-  immobilizations: number;
-  wardsBlocked: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  elites: number;
+  bosses: number;
+  floors: number;
 }
 
-export interface RunLogEntry {
-  act: number;
+export interface RunNotice {
+  tone: 'good' | 'bad' | 'info';
   text: string;
 }
 
 export interface RunState {
-  schema: number;
+  version: 1;
   seed: string;
-  rng: StreamStates;
+  difficulty: Difficulty;
   act: number;
   map: ActMap;
-  /** Last node entered in this act (null at act start). */
-  at: string | null;
+  /** Node the player stands on (null before the first floor of an act). */
+  current: string | null;
   visited: string[];
-  roster: RosterPiece[];
-  upgrades: OwnedUpgrade[];
-  mutations: PlacedMutation[];
-  /** Forward Deployment's chosen rank-4 squares. */
-  rank4: Sq[];
-  /** Run-level enemy affixes accepted as curses. */
-  curses: string[];
-  crowns: number;
+  lives: number;
+  maxLives: number;
   gold: number;
-  /** Next acquisition order index (D4 ordering). */
-  acquisitions: number;
-  encounter: EncounterState | null;
-  encounterNode: string | null;
-  /** Undo snapshots for the current Player Turn (transient; never saved). */
-  undo: EncounterState[];
-  pending: Pending | null;
-  /** The node whose content is pending (shop/event/etc.). */
-  pendingNode: string | null;
-  result: null | { outcome: 'victory' | 'defeat'; act: number };
+  undos: number;
+  augments: RunAugment[];
+  phase: RunPhase;
+  enemy: EnemyDef | null;
+  /** Seed of the current battle (changes on retries). */
+  battleSeed: string | null;
+  attempts: number;
+  reward: RewardOffer | null;
+  shop: ShopItem[] | null;
+  event: EventState | null;
+  seenEvents: string[];
+  /** One-shot modifiers: the next enemy is this many levels stronger. */
+  nextEnemyBonus: number;
+  notice: RunNotice | null;
   stats: RunStats;
-  history: RunLogEntry[];
-  /** Every run action taken, in order (G1/D6 replay). */
-  actions: RunAction[];
+  /** Increments whenever randomness is drawn, so every roll has its own label. */
+  counter: number;
 }
 
+export type BattleOutcome = 'win' | 'loss' | 'draw';
+
 export type RunAction =
-  | { type: 'chooseNode'; nodeId: string }
-  | { type: 'encounterAct'; action: PlayerActionInput }
-  | { type: 'endTurn' }
-  | { type: 'undo' }
-  | { type: 'finishEncounter' }
-  | { type: 'pickOffer'; index: number }
-  | { type: 'skip' }
-  | { type: 'placeSquares'; squares: Sq[] }
-  | { type: 'placeLine'; axis: 'rank' | 'file'; index: number }
-  | { type: 'pickPiece'; rosterId: string }
-  | { type: 'pickSide'; side: 'king' | 'queen' }
+  | { type: 'start-pick'; card: string | null }
+  | { type: 'enter'; node: string }
+  | { type: 'begin-battle' }
+  | { type: 'battle-end'; outcome: BattleOutcome; undos: number }
+  | { type: 'take-reward'; card: string | null }
   | { type: 'buy'; index: number }
-  | { type: 'reroll' }
   | { type: 'leave' }
-  | { type: 'eventChoice'; index: number }
-  | { type: 'sacrificePiece'; rosterId: string }
-  | { type: 'acceptCurse' }
-  | { type: 'formation'; roster: RosterPiece[] }
-  | { type: 'retryBoss' }
-  | { type: 'continueAfterDefeat' };
+  | { type: 'rest'; choice: 'heal' | 'forge'; card?: string }
+  | { type: 'event'; choice: number; card?: string }
+  | { type: 'spend-undo' };

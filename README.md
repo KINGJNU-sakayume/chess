@@ -1,31 +1,42 @@
-# Break Chess
+# 브레이크 체스 (Break Chess)
 
-A browser-playable chess roguelike. Every run begins close to normal chess; by repeatedly upgrading pieces,
-mutating the board, reshaping your starting formation and weakening enemy rules, you build **your own broken
-version of chess**.
+정통 체스 위에 **증강**을 쌓아 올리는 브라우저 로그라이크입니다. 슬레이 더 스파이어처럼 갈림길이 있는 지도를 따라
+3막을 올라가며 AI와 대국하고, 이길 때마다 증강 3장 중 1장을 골라 도전 내내 들고 다닙니다. 각 막의 끝에는 고유한
+증강을 가진 보스가 기다립니다.
 
-- Fully client-side: Vite + React + TypeScript + Tailwind CSS. No server, no paid APIs, no LLMs.
-- Deterministic engine with seeded PRNG streams; runs headless in tests and in balance simulations.
-- See [`DESIGN_DECISIONS.md`](./DESIGN_DECISIONS.md) for interpretations of the design brief and
-  [`docs/BALANCE.md`](./docs/BALANCE.md) for the latest balance simulation.
+- 서버 없이 브라우저에서만 동작합니다 (Vite + React + TypeScript + Tailwind CSS).
+- AI는 Web Worker에서 도는 알파-베타 탐색 엔진이며, 모든 증강 규칙을 이해하고 둡니다.
+- 설계 배경과 규칙 해석은 [`DESIGN_DECISIONS.md`](./DESIGN_DECISIONS.md)에 있습니다.
 
-## Playing
+## 플레이 방법
 
-From the title screen: **New run** (optionally with a seed), **Continue run** from the autosave, the **Encounter
-Sandbox** (any template or boss, act and seed) or the **Hot-seat Test Board** (plain two-player chess).
+타이틀 화면에서 고릅니다.
 
-- Click one of your pieces to see its moves: cyan dots are movement granted by upgrades, violet diamonds pierce.
-- Red arrows are the enemy's **committed intents**: they execute after your turn, exactly as shown, unless you dodge,
-  block, capture, immobilize or bait them. Numbered markers show a boss's route step by step.
-- Hover a piece to inspect its accumulated rules; **Details** (or `I`) switches between the compact and full view.
-- Keys: `Enter` End Turn · `Z` Undo · `Space` skip animations · `I` inspector details · `Esc` deselect.
-- Animation speed 1×, 2× or Instant is in the actions panel. The sandbox has a debug panel that grants any
-  upgrade or board square, to try combinations.
+- **새 도전** (로그라이크): 난이도(쉬움·보통·어려움)를 고르고 출발 선물 증강 하나를 받아 지도에 들어섭니다.
+- **자유 대전**: 한 판짜리 대국. AI 대전(색과 난이도 선택) 또는 한 화면 2인 대전이며, 게임 시작·10수·20수에 증강을 고릅니다.
+- **증강 도감**, **게임 규칙**.
 
-A run is three acts of 9 rows each, ending in a boss: the Fortress King, the Tyrant Queen and the Pawn Emperor.
-You have three Crowns; losing an encounter costs one. Progress autosaves after every node and every End Turn.
+### 도전
 
-## Development
+- 지도 칸: **대국**, **정예**(더 강한 상대, 더 좋은 보상), **이벤트**(선택지), **상점**(골드로 증강·목숨·무르기 구입),
+  **휴식처**(목숨 회복 또는 액티브 증강 연마), **보물**(증강 선택). 막마다 끝에 **보스**가 있습니다.
+- 이기면 골드와 **증강 3장 중 1장**. 모은 증강은 모든 대국에 적용되고, 액티브 증강의 사용 횟수는 대국마다 다시 채워집니다.
+- 상대도 막이 오를수록 더 강한 AI와 더 많은 증강을 들고 나옵니다. 보스는 고유 증강 조합을 가집니다
+  (성채의 군주, 기병대장, 폭군 여왕, 붉은 대주교, 폰 황제, 언덕의 왕).
+- 지면 목숨이 하나 줄고(시작 3), 0이 되면 끝입니다. 보스는 이길 때까지 다시 도전합니다. 무르기는 도전 전체에서 함께 씁니다.
+- 진행은 자동 저장되며, 대국 도중에 닫아도 **도전 이어하기**로 같은 국면부터 계속합니다.
+
+### 대국 규칙
+
+- 행마, 캐슬링, 앙파상, 승진은 일반 체스와 같고, **한 턴에는 언제나 한 수**만 둡니다.
+- 체크메이트 대신 **상대 킹을 잡으면 승리**합니다. 킹을 내주는 수도 둘 수 있으며, 보드에 빨간 점으로 경고합니다.
+- 둘 수 있는 수가 없으면 집니다. 50수 규칙, 3회 동형 반복, 킹만 남은 경우는 무승부입니다.
+- **패시브** 증강은 항상 적용되고, **액티브** 증강은 자기 턴에 수를 두기 전에 쓰며 턴을 쓰지 않습니다. 한 턴에 한 장까지
+  쓸 수 있고, 카드는 기물을 움직이지 않습니다. 소환한 기물은 그 턴에 움직일 수 없습니다.
+
+조작: 기물을 클릭한 뒤 도착 칸을 클릭합니다. `Esc`로 선택이나 카드 사용을 취소합니다.
+
+## 개발
 
 ```bash
 npm install
@@ -34,33 +45,25 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run balance    # headless balance simulation (see below)
+npm run sim        # 봇이 도전 전체를 두는 밸런스 시뮬레이션 (느림)
+npm run sim:boss   # 보스전만 따로 측정
 ```
 
-### Balance simulation
+시뮬레이션은 `SIM_PLAYER`(플레이어 봇 AI 레벨), `SIM_RUNS`, `SIM_DIFF`, `SIM_ACT`, `SIM_LEVEL` 환경 변수로 조절합니다.
 
-```bash
-npm run balance -- --seeds 40 --policies pawn,bishop,board,any --acts 3 --out docs/BALANCE.md
-```
+### 구조
 
-A bot plays whole seeded runs through the same reducer as the UI, with a pick policy per archetype (`pawn`,
-`bishop`, `board` = mutations and debuffs only, `any` = best rarity). The report lists run win rates, where runs
-end, loss rates per encounter template and act (with the reason: turn limit, King captured…), boss results and the
-most taken upgrades. Every row replays exactly from its seed. Tuning lives in data: `src/data/acts.ts`,
-`src/data/economy.ts`, `src/data/profiles.ts`, the encounter templates in `src/data/encounters` and the bosses in
-`src/data/bosses`.
+- `src/engine/game` — 증강을 이해하는 체스 엔진: 무르기를 지원하는 착수 처리, 행마 생성, 공격 판정, 해시, 기보 표기.
+- `src/engine/augments` — 증강 카드 정의(한국어 텍스트 포함)와 드래프트(등급 추첨, 제시, 규칙 합성).
+- `src/engine/ai` — 평가 함수, 알파-베타 탐색, 난이도별 착수와 카드 사용 판단.
+- `src/engine/match` — 한 판 전체를 액션 목록으로 재현하는 리듀서(저장, 무르기, 테스트가 모두 같은 경로 사용).
+- `src/engine/run` — 도전(로그라이크): 지도 생성, 적·보스 생성, 보상, 상점, 휴식, 이벤트를 다루는 순수 리듀서와 튜닝 데이터(`content.ts`).
+- `src/engine/chess` — 정통 체스 기준 구현(퍼프트 검증과 교차 검증용).
+- `src/ai` — AI Web Worker와 클라이언트.
+- `src/state`, `src/components`, `src/screens` — React UI (Zustand 스토어). 도전 화면은 `src/screens/run`.
+- `tests` — Vitest: 엔진 퍼프트와 교차 검증, 모든 증강 효과, AI 전술 테스트, AI 대 AI 대국과 재현성, 도전 흐름과 지도 규칙. `tests/sim`은 밸런스 시뮬레이션입니다.
 
-### Layout
+## 배포
 
-- `src/engine` — rules: chess core, move generation layers, effect primitives and the event-driven resolver,
-  encounters (setup, flow, objectives, generator and validator), enemy planning, runs, saves, simulation.
-- `src/data` — content and tuning: upgrades (C1–C8), squares, affixes, events, recruits, templates, bosses.
-- `src/state` — Zustand stores (session with animation frames and effects, run, settings).
-- `src/components`, `src/screens` — React UI. `tests` — Vitest suites (perft, every primitive and upgrade,
-  interactions, validator, runs, bosses, balance, effects).
-
-## Deployment
-
-`.github/workflows/ci.yml` runs install → lint → typecheck → test → build on every push, and deploys `dist/` to
-GitHub Pages on pushes to `main`. Enable Pages once in **Settings → Pages → Source: GitHub Actions**.
-The Vite `base` is derived from the repository name in CI (`VITE_BASE`), defaulting to `/chess/`.
+`.github/workflows/ci.yml`이 푸시마다 install → lint → typecheck → test → build를 실행하고, `main` 브랜치는 GitHub
+Pages에 배포합니다. Pages는 **Settings → Pages → Source: GitHub Actions**에서 한 번 켜 두면 됩니다.

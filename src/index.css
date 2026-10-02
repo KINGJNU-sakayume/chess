@@ -1,8 +1,9 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-display: 'Cinzel', 'Georgia', serif;
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Cinzel', 'Noto Serif KR', 'Georgia', serif;
+  --font-serif-kr: 'Noto Serif KR', 'Nanum Myeongjo', serif;
+  --font-sans: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --color-ink-950: #0e0b12;
   --color-ink-900: #15111b;
@@ -64,6 +65,10 @@ body {
   border: 1px solid rgba(164, 151, 182, 0.16);
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.panel-solid {
+  background: linear-gradient(180deg, #241d2e, #18131f);
 }
 
 .btn {
@@ -299,35 +304,102 @@ body {
     transform: none;
   }
 }
-/* A Pawn swarm marches in place (F4: "ridiculous and satisfying"). */
-.swarm-bob {
-  animation: swarm-bob 1.6s ease-in-out infinite;
+/* ---------------------------------------------------------------------------
+ * Augment cards: a gradient frame per tier around a dark body.
+ * ------------------------------------------------------------------------- */
+.tier-frame {
+  padding: 2px;
+  border-radius: 16px;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
-@keyframes swarm-bob {
+.card-inner {
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(38, 31, 49, 0.98), rgba(22, 17, 29, 0.98));
+}
+.tier-silver {
+  background: linear-gradient(160deg, #f1f4f9, #8a95a6 40%, #dfe5ee 65%, #6f7a8b);
+}
+.tier-gold {
+  background: linear-gradient(160deg, #fff0bf, #c79a3c 40%, #f3d98f 65%, #8c6a22);
+}
+.tier-prism {
+  background: linear-gradient(120deg, #9fe6f0, #b48cff, #f2958c, #f3d98f, #9fe6f0, #b48cff);
+  background-size: 300% 300%;
+  animation: prism-shift 7s ease-in-out infinite;
+}
+@keyframes prism-shift {
   0%,
   100% {
-    transform: translateY(0);
+    background-position: 0% 50%;
   }
   50% {
-    transform: translateY(-4%);
+    background-position: 100% 50%;
   }
 }
-/* Freshly granted action tokens pop in. */
-.token-pop {
-  animation: token-pop 420ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
 }
-@keyframes token-pop {
+.card-selected {
+  transform: translateY(-4px);
+  box-shadow:
+    0 0 0 3px rgba(243, 217, 143, 0.9),
+    0 14px 30px rgba(0, 0, 0, 0.45);
+}
+.card-enter {
+  animation: card-enter 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes card-enter {
   0% {
-    transform: scale(0.3);
+    opacity: 0;
+    transform: translateY(24px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.modal-enter {
+  animation: modal-enter 220ms ease-out both;
+}
+@keyframes modal-enter {
+  0% {
     opacity: 0;
   }
   100% {
-    transform: scale(1);
+    opacity: 1;
+  }
+}
+.toast-enter {
+  animation: toast-enter 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes toast-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.shield-ring {
+  animation: shield-glow 2.4s ease-in-out infinite;
+}
+@keyframes shield-glow {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
     opacity: 1;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .swarm-bob {
+  .tier-prism,
+  .shield-ring {
     animation: none;
   }
 }

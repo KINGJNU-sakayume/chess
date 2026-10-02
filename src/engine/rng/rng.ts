@@ -1,13 +1,9 @@
 /**
- * Seeded PRNG (sfc32) with named, independent streams (D6).
- *
- * Engine code must never call Math.random(). Each stream's state is a plain
- * 4-tuple so it can be stored in immutable game state and serialized.
+ * Seeded PRNG (sfc32). Engine code never calls Math.random(): draft offers,
+ * tiers and the AI's noise all derive from the game seed and a label, so a
+ * game replays exactly from its actions.
  */
 export type RngState = readonly [number, number, number, number];
-
-export const STREAM_NAMES = ['map', 'offers', 'encounterGen', 'enemyAI', 'events'] as const;
-export type StreamName = (typeof STREAM_NAMES)[number];
 
 /** cyrb128 string hash → four 32-bit seeds. */
 export function hashSeed(str: string): RngState {
@@ -122,22 +118,4 @@ export class Rng {
     }
     return out;
   }
-}
-
-export type StreamStates = Record<StreamName, RngState>;
-
-export function createStreams(seed: string): StreamStates {
-  const out = {} as Record<StreamName, RngState>;
-  for (const name of STREAM_NAMES) out[name] = deriveStream(seed, name);
-  return out;
-}
-
-/**
- * Run `fn` with a stream and return its result plus the updated stream map.
- * Other streams are untouched, so consuming one never shifts another.
- */
-export function withStream<T>(streams: StreamStates, name: StreamName, fn: (rng: Rng) => T): [T, StreamStates] {
-  const rng = new Rng(streams[name]);
-  const result = fn(rng);
-  return [result, { ...streams, [name]: rng.state() }];
 }

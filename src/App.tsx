@@ -1,16 +1,22 @@
 import { useAppStore } from './state/appStore';
-import { TitleScreen } from './screens/TitleScreen';
-import { HotseatScreen } from './screens/HotseatScreen';
-import { SandboxScreen } from './screens/SandboxScreen';
+import { CodexScreen } from './screens/CodexScreen';
+import { GameScreen } from './screens/GameScreen';
+import { RulesScreen } from './screens/RulesScreen';
 import { RunScreen } from './screens/run/RunScreen';
+import { SetupScreen } from './screens/SetupScreen';
+import { TitleScreen } from './screens/TitleScreen';
 
 export function App() {
   const screen = useAppStore((s) => s.screen);
   switch (screen) {
-    case 'hotseat':
-      return <HotseatScreen />;
-    case 'sandbox':
-      return <SandboxScreen />;
+    case 'setup':
+      return <SetupScreen />;
+    case 'game':
+      return <GameScreen />;
+    case 'codex':
+      return <CodexScreen />;
+    case 'rules':
+      return <RulesScreen />;
     case 'run':
       return <RunScreen />;
     default:

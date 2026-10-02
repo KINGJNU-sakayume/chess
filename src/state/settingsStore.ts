@@ -3,23 +3,23 @@ import { create } from 'zustand';
 export type AnimSpeed = 1 | 2 | 0;
 
 export interface Settings {
-  /** Animation speed: 1×, 2× or 0 = instant (F5). */
+  /** Animation speed: normal, fast or instant. */
   animSpeed: AnimSpeed;
-  /** End the turn automatically when no actions remain (B2). Off by default so Undo stays useful. */
-  autoEndTurn: boolean;
-  /** Show squares attacked by the enemy. */
-  attackOverlay: boolean;
-  /** Expanded piece inspector by default. */
-  inspectorExpanded: boolean;
+  /** Mark moves that leave your own King capturable. */
+  dangerHints: boolean;
+  /** Show the squares of the last move and check highlights. */
+  showCoords: boolean;
+  /** Two-player games: turn the board toward the side to move. */
+  autoFlip: boolean;
 }
 
-const KEY = 'breakchess.settings.v1';
+const KEY = 'breakchess.settings.v2';
 
 const DEFAULTS: Settings = {
   animSpeed: 1,
-  autoEndTurn: false,
-  attackOverlay: false,
-  inspectorExpanded: false,
+  dangerHints: true,
+  showCoords: true,
+  autoFlip: false,
 };
 
 function load(): Settings {
@@ -50,6 +50,7 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   },
 }));
 
-/** Milliseconds per animation frame for the current speed. */
-export const frameMs = (speed: AnimSpeed): number => (speed === 0 ? 0 : speed === 2 ? 190 : 380);
+/** Piece slide duration for the current speed. */
 export const moveMs = (speed: AnimSpeed): number => (speed === 0 ? 0 : speed === 2 ? 110 : 220);
+/** Pause before the AI's move lands, so it can be followed. */
+export const aiDelayMs = (speed: AnimSpeed): number => (speed === 0 ? 60 : speed === 2 ? 220 : 450);

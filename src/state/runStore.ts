@@ -1,100 +1,131 @@
 import { create } from 'zustand';
-import type { EncounterState } from '../engine/core/state';
-import { newRun, runReducer } from '../engine/run/reducer';
-import type { RunAction, RunState } from '../engine/run/types';
-import { deserializeRun, serializeRun } from '../engine/serialize/save';
+import type { MatchAction, MatchState } from '../engine/match/match';
+import { battleSetup, createRun, runAction } from '../engine/run/reducer';
+import type { BattleOutcome, Difficulty, RunAction, RunState } from '../engine/run/types';
+import { onMatchChange, useGame } from './gameStore';
 
-/**
- * UI adapter for the run reducer (no rules here). Autosaves after every node
- * and every End Turn (G1). Encounter actions are executed by the session store
- * (which also produces animation frames) and recorded here without recomputing.
- */
-const SAVE_KEY = 'breakchess.run.v1';
+const RUN_KEY = 'breakchess.run.v1';
 
-function save(run: RunState): void {
-  try {
-    localStorage.setItem(SAVE_KEY, serializeRun(run));
-  } catch {
-    /* storage unavailable or full */
-  }
+interface SavedRun {
+  run: RunState;
+  /** Actions of the battle in progress, if any. */
+  battle: MatchAction[] | null;
 }
 
-export function loadSavedRun(): RunState | null {
+interface RunStore {
+  run: RunState | null;
+  /** Last refused action's reason (shown briefly). */
+  error: string | null;
+  start: (difficulty: Difficulty) => void;
+  act: (a: RunAction) => boolean;
+  resume: () => boolean;
+  /** Start the battle of the pre-battle screen and hand it to the game screen. */
+  launchBattle: () => void;
+  /** Report the finished battle back to the run. */
+  finishBattle: (outcome: BattleOutcome) => void;
+  /** Spend one of the run's undos; false if none are left. */
+  spendUndo: () => boolean;
+  abandon: () => void;
+}
+
+let battleActions: MatchAction[] | null = null;
+
+function persist(run: RunState | null): void {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? deserializeRun(raw) : null;
+    if (!run || run.phase === 'victory' || run.phase === 'defeat') localStorage.removeItem(RUN_KEY);
+    else localStorage.setItem(RUN_KEY, JSON.stringify({ run, battle: run.phase === 'battle' ? battleActions : null } satisfies SavedRun));
   } catch {
-    return null;
+    /* storage unavailable */
   }
 }
 
 export function hasSavedRun(): boolean {
   try {
-    return !!localStorage.getItem(SAVE_KEY);
+    return !!localStorage.getItem(RUN_KEY);
   } catch {
     return false;
   }
 }
 
-export function clearSavedRun(): void {
-  try {
-    localStorage.removeItem(SAVE_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-interface RunStore {
-  run: RunState | null;
-  error: string | null;
-  start: (seed: string) => void;
-  resume: () => boolean;
-  dispatch: (action: RunAction) => boolean;
-  /** Record an encounter action already executed by the session store. */
-  recordEncounter: (action: RunAction, encounter: EncounterState, undo: EncounterState[]) => void;
-  abandon: () => void;
-  close: () => void;
-}
-
-const MID_TURN: RunAction['type'][] = ['encounterAct', 'undo'];
-
-export const useRun = create<RunStore>((set, get) => ({
-  run: null,
-  error: null,
-  start: (seed) => {
-    const run = newRun(seed);
-    save(run);
-    set({ run, error: null });
-  },
-  resume: () => {
-    const run = loadSavedRun();
-    if (!run) return false;
-    set({ run, error: null });
-    return true;
-  },
-  dispatch: (action) => {
-    const { run } = get();
+export const useRun = create<RunStore>((set, get) => {
+  const apply = (a: RunAction): boolean => {
+    const run = get().run;
     if (!run) return false;
     try {
-      const next = runReducer(run, action);
+      const next = runAction(run, a);
       set({ run: next, error: null });
-      if (!MID_TURN.includes(action.type)) save(next);
+      persist(next);
       return true;
-    } catch (err) {
-      set({ error: (err as Error).message });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
       return false;
     }
-  },
-  recordEncounter: (action, encounter, undo) => {
-    const { run } = get();
-    if (!run) return;
-    const next: RunState = { ...run, encounter, undo, actions: [...run.actions, action] };
-    set({ run: next });
-    if (!MID_TURN.includes(action.type)) save(next);
-  },
-  abandon: () => {
-    clearSavedRun();
-    set({ run: null, error: null });
-  },
-  close: () => set({ run: null, error: null }),
-}));
+  };
+
+  return {
+    run: null,
+    error: null,
+
+    start: (difficulty) => {
+      const seed = `run-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+      const run = createRun(seed, difficulty);
+      battleActions = null;
+      set({ run, error: null });
+      persist(run);
+    },
+
+    act: apply,
+
+    resume: () => {
+      try {
+        const raw = localStorage.getItem(RUN_KEY);
+        if (!raw) return false;
+        const saved = JSON.parse(raw) as SavedRun;
+        if (saved.run?.version !== 1) throw new Error('old save');
+        battleActions = saved.battle;
+        set({ run: saved.run, error: null });
+        if (saved.run.phase === 'battle') useGame.getState().restore(battleSetup(saved.run), saved.battle ?? []);
+        return true;
+      } catch {
+        try {
+          localStorage.removeItem(RUN_KEY);
+        } catch {
+          /* ignore */
+        }
+        return false;
+      }
+    },
+
+    launchBattle: () => {
+      if (!apply({ type: 'begin-battle' })) return;
+      battleActions = [];
+      useGame.getState().start(battleSetup(get().run!));
+      persist(get().run);
+    },
+
+    finishBattle: (outcome) => {
+      const run = get().run;
+      if (!run || run.phase !== 'battle') return;
+      battleActions = null;
+      apply({ type: 'battle-end', outcome, undos: run.undos });
+      useGame.getState().quit();
+    },
+
+    spendUndo: () => apply({ type: 'spend-undo' }),
+
+    abandon: () => {
+      battleActions = null;
+      set({ run: null, error: null });
+      persist(null);
+    },
+  };
+});
+
+/** Keep the battle in progress saved with the run. */
+onMatchChange((m: MatchState) => {
+  if (m.setup.context !== 'run') return;
+  const run = useRun.getState().run;
+  if (!run || run.phase !== 'battle' || m.setup.seed !== run.battleSeed) return;
+  battleActions = m.actions.slice();
+  persist(run);
+});

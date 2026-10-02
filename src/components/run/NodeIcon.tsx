@@ -1,47 +1,90 @@
+import type { ReactNode } from 'react';
 import type { NodeType } from '../../engine/run/types';
-import { NODE_COLOR } from './nodeMeta';
 
-/** Small glyphs for map nodes. */
-const PATHS: Record<NodeType, React.ReactNode> = {
-  combat: <path d="M20 78 L60 38 M30 30 L70 70 M58 30 L70 30 L70 42 M20 66 L32 78 M66 78 L78 66 M42 30 L30 42" strokeWidth="9" strokeLinecap="round" fill="none" stroke="currentColor" />,
+/** Map node glyphs (24×24, stroke-based). */
+
+const S = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
+
+const GLYPH: Record<NodeType, ReactNode> = {
+  battle: (
+    <>
+      <path {...S} d="M5 4l10.5 10.5M19 4L8.5 14.5" />
+      <path {...S} d="M13 17l4-4M11 17l-4-4M15 19l2 2 2-2-2-2M9 19l-2 2-2-2 2-2" />
+    </>
+  ),
   elite: (
-    <g>
-      <path d="M50 14 C30 14 18 30 18 48 C18 62 26 70 32 74 L32 86 L68 86 L68 74 C74 70 82 62 82 48 C82 30 70 14 50 14 Z" />
-      <circle cx="38" cy="50" r="8" fill="#15111b" />
-      <circle cx="62" cy="50" r="8" fill="#15111b" />
-    </g>
+    <>
+      <path {...S} d="M4 9l3 3 3-6 2 5 2-5 3 6 3-3-2 9H6z" />
+      <path {...S} d="M9 15h.01M15 15h.01" />
+    </>
   ),
-  boss: <path d="M14 76 L20 30 L38 52 L50 22 L62 52 L80 30 L86 76 Z M14 82 H86 V90 H14 Z" />,
-  upgrade: <path d="M50 12 L78 46 H60 V88 H40 V46 H22 Z" />,
+  event: (
+    <>
+      <path {...S} d="M9 9a3 3 0 1 1 4.5 2.6c-.9.5-1.5 1.2-1.5 2.4" />
+      <circle cx={12} cy={18} r={1} fill="currentColor" />
+    </>
+  ),
   shop: (
-    <g>
-      <circle cx="50" cy="50" r="34" fill="none" stroke="currentColor" strokeWidth="9" />
-      <path d="M50 28 V72 M38 38 H58 C66 38 66 50 58 50 H42 C34 50 34 62 42 62 H62" stroke="currentColor" strokeWidth="7" fill="none" />
-    </g>
+    <>
+      <path {...S} d="M8 7c0-2 1.8-3 4-3s4 1 4 3M6 8h12l-1 12H7z" />
+      <path {...S} d="M12 11v6M10 12.5h3a1.2 1.2 0 0 1 0 2.4h-2a1.2 1.2 0 0 0 0 2.4h3" />
+    </>
   ),
-  mutation: (
-    <g>
-      <rect x="16" y="16" width="30" height="30" />
-      <rect x="54" y="54" width="30" height="30" />
-      <rect x="54" y="16" width="30" height="30" opacity="0.4" />
-      <rect x="16" y="54" width="30" height="30" opacity="0.4" />
-    </g>
+  rest: (
+    <>
+      <path {...S} d="M12 3c1 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 2-4 0 1.5 1 2 2 2-.5-2-.5-4 0-6z" />
+      <path {...S} d="M4 20l16-3M4 17l16 3" />
+    </>
   ),
-  recruit: (
-    <g>
-      <circle cx="42" cy="30" r="12" />
-      <path d="M30 46 H54 L58 84 H26 Z" />
-      <path d="M72 30 V58 M58 44 H86" stroke="currentColor" strokeWidth="8" />
-    </g>
+  treasure: (
+    <>
+      <path {...S} d="M4 10h16v9H4zM4 10a8 5 0 0 1 16 0" />
+      <path {...S} d="M4 13h16M11 12h2v3h-2z" />
+    </>
   ),
-  event: <path d="M36 34 C36 20 64 20 64 34 C64 46 50 46 50 60 M50 74 V80" stroke="currentColor" strokeWidth="10" strokeLinecap="round" fill="none" />,
-  sacrifice: <path d="M50 10 C60 30 76 38 70 60 C66 76 56 86 50 88 C44 86 34 76 30 60 C24 38 40 30 50 10 Z" />,
+  boss: (
+    <>
+      <path {...S} d="M3 8l4.5 4L12 4l4.5 8L21 8l-2 11H5z" />
+      <path {...S} d="M8 16h8" />
+    </>
+  ),
 };
 
 export function NodeIcon({ type, className }: { type: NodeType; className?: string }) {
   return (
-    <svg viewBox="0 0 100 100" className={className} fill="currentColor" style={{ color: NODE_COLOR[type] }} aria-hidden="true">
-      {PATHS[type]}
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      {GLYPH[type]}
+    </svg>
+  );
+}
+
+export function HeartIcon({ filled, className }: { filled: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"
+        fill={filled ? '#e5675d' : 'none'}
+        stroke={filled ? '#9c2a25' : '#7a6c8f'}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function CoinIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <circle cx={12} cy={12} r={8.5} fill="#e8c46a" stroke="#8c6a22" strokeWidth={1.6} />
+      <circle cx={12} cy={12} r={5.5} fill="none" stroke="#a9822f" strokeWidth={1.2} />
+    </svg>
+  );
+}
+
+export function UndoIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path d="M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="#9fe6f0" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

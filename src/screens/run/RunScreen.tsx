@@ -1,150 +1,100 @@
-import { useEffect, useState } from 'react';
-import { runView } from '../../engine/run/reducer';
-import type { RunAction, RunState } from '../../engine/run/types';
-import type { SessionAction } from '../../state/sessionStore';
-import { useSession } from '../../state/sessionStore';
-import { useRun } from '../../state/runStore';
+import { useState } from 'react';
+import { RunHud } from '../../components/run/RunHud';
+import { ACTS, MAX_LIVES, START_GOLD, START_UNDOS } from '../../engine/run/content';
+import { DIFFICULTY_NAME, type Difficulty } from '../../engine/run/types';
 import { useAppStore } from '../../state/appStore';
-import { EncounterScreen } from '../EncounterScreen';
-import { BuildPanel } from '../../components/run/BuildPanel';
+import { useGame } from '../../state/gameStore';
+import { useRun } from '../../state/runStore';
 import { MapView } from './MapView';
-import { DefeatView, EventView, PlaceView, RecruitView, RewardView, SacrificeView, ShopView } from './PendingViews';
-import { FormationEditor } from './FormationEditor';
-import { RunOverView } from './RunOverView';
+import { EndView, EventView, Notice, PreBattleView, RestView, RewardView, ShopView } from './RunViews';
 
-function Crowns({ n }: { n: number }) {
-  return (
-    <span className="flex items-center gap-0.5" title={`${n} Crown${n === 1 ? '' : 's'} — lose one per lost encounter; 0 ends the run`}>
-      {[0, 1, 2].map((i) => (
-        <svg key={i} viewBox="0 0 100 100" className="h-5 w-5" fill={i < n ? '#e8c46a' : 'none'} stroke={i < n ? '#a9822f' : '#55486a'} strokeWidth="6">
-          <path d="M12 74 L18 28 L36 50 L50 20 L64 50 L82 28 L88 74 Z" />
-        </svg>
-      ))}
-    </span>
-  );
-}
+const DIFF_TEXT: Record<Difficulty, string> = {
+  0: '상대 AI가 한 단계 약합니다. 규칙과 증강을 익히기 좋습니다.',
+  1: '1막은 입문~중급, 3막은 중급~고급 AI가 상대합니다.',
+  2: '상대 AI가 한 단계 강합니다. 마지막 보스는 마스터입니다.',
+};
 
-export function RunHeader({ run, onBuild, onFormation, onQuit }: { run: RunState; onBuild: () => void; onFormation?: () => void; onQuit: () => void }) {
+function RunSetup() {
+  const go = useAppStore((s) => s.go);
+  const start = useRun((s) => s.start);
+  const [difficulty, setDifficulty] = useState<Difficulty>(1);
   return (
-    <header className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-700/60 bg-ink-900/70 px-3 py-2">
-      <div className="flex items-center gap-4">
-        <span className="font-display text-lg text-gold-300">Act {run.act}</span>
-        <Crowns n={run.crowns} />
-        <span className="text-sm text-gold-300" title="Gold">
-          ◈ {run.gold}
-        </span>
-        <span className="hidden text-sm text-ink-300 sm:inline">
-          Army {run.roster.length} · Upgrades {run.upgrades.reduce((n, u) => n + u.stacks, 0)}
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <button type="button" className="btn px-3 py-1.5 text-xs" onClick={onBuild}>
-          Your chess
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+      <div className="flex items-center gap-3">
+        <button type="button" className="btn btn-ghost px-2 text-xs" onClick={() => go('title')}>
+          ← 메뉴
         </button>
-        {onFormation ? (
-          <button type="button" className="btn px-3 py-1.5 text-xs" onClick={onFormation}>
-            Formation
+        <h1 className="font-serif-kr text-3xl font-bold text-gold-300">도전</h1>
+      </div>
+      <section className="panel flex flex-col gap-2 p-5 text-sm leading-relaxed text-ink-200">
+        <p>
+          갈림길이 있는 지도를 따라 {ACTS}막을 올라가며 AI와 대국합니다. 각 막의 끝에는 고유한 증강을 가진 <b className="text-blood-300">보스</b>가 기다립니다.
+        </p>
+        <p>
+          대국에서 이기면 <b className="text-gold-300">증강 3장 중 1장</b>을 골라 가져갑니다. 모은 증강은 도전 내내 모든 대국에 적용되고, 상대도 막이 오를수록 더 많은 증강을 들고 나옵니다.
+        </p>
+        <p>
+          지면 목숨을 하나 잃습니다(시작 {MAX_LIVES}개). 보스는 이길 때까지 다시 도전해야 합니다. 시작 골드 {START_GOLD}, 무르기 {START_UNDOS}회가 주어지며, 무르기는 도전 전체에서 함께
+          씁니다.
+        </p>
+      </section>
+      <section className="panel flex flex-col gap-3 p-5">
+        <h2 className="font-bold text-ink-100">난이도</h2>
+        {([0, 1, 2] as Difficulty[]).map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => setDifficulty(d)}
+            className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
+              difficulty === d ? 'border-gold-400 bg-gold-500/15' : 'border-ink-600 bg-ink-850 hover:border-ink-400'
+            }`}
+          >
+            <span className="w-14 shrink-0 font-bold text-ink-100">{DIFFICULTY_NAME[d]}</span>
+            <span className="text-xs text-ink-300">{DIFF_TEXT[d]}</span>
           </button>
-        ) : null}
-        <button type="button" className="btn btn-ghost px-2 py-1.5 text-xs" onClick={onQuit} title="Your progress is saved">
-          Save &amp; quit
+        ))}
+        <button type="button" className="btn btn-gold py-3 text-base" onClick={() => start(difficulty)}>
+          도전 시작
         </button>
-      </div>
-    </header>
+      </section>
+    </div>
   );
 }
-
-const toRunAction = (a: SessionAction): RunAction =>
-  a.type === 'act' ? { type: 'encounterAct', action: a.action } : a.type === 'endTurn' ? { type: 'endTurn' } : { type: 'undo' };
 
 export function RunScreen() {
-  const { run, dispatch, recordEncounter, error, close } = useRun();
-  const session = useSession();
+  const run = useRun((s) => s.run);
   const go = useAppStore((s) => s.go);
-  const [showBuild, setShowBuild] = useState(false);
-  const [showFormation, setShowFormation] = useState(false);
-
-  // Keep the encounter session in sync with the run's current encounter. The session
-  // records its own actions back into the run, so a different object means a new encounter
-  // (a new node or a boss retry).
-  const encounter = run?.encounter ?? null;
-  useEffect(() => {
-    const current = useSession.getState().state;
-    if (!encounter) {
-      if (current) session.clear();
-      return;
-    }
-    if (current !== encounter) {
-      session.start(encounter, { onAction: (a, state, history) => recordEncounter(toRunAction(a), state, history) }, useRun.getState().run?.undo ?? []);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [encounter]);
-
-  if (!run) return null;
-  const quit = () => {
-    session.clear();
-    close();
-    go('title');
-  };
-  const view = runView(run);
-  const header = (
-    <RunHeader run={run} onBuild={() => setShowBuild(true)} onFormation={view === 'map' ? () => setShowFormation(true) : undefined} onQuit={quit} />
-  );
-
-  let body: React.ReactNode = null;
-  if (view === 'encounter') {
-    return (
-      <>
-        <EncounterScreen header={header} onContinue={() => dispatch({ type: 'finishEncounter' })} continueLabel="Continue" />
-        {showBuild ? <BuildPanel run={run} onClose={() => setShowBuild(false)} /> : null}
-      </>
-    );
-  }
-  if (view === 'map') body = <MapView run={run} onChoose={(id) => dispatch({ type: 'chooseNode', nodeId: id })} />;
-  if (view === 'over') body = <RunOverView run={run} onExit={quit} />;
-  if (view === 'pending') {
-    const p = run.pending!;
-    switch (p.kind) {
-      case 'reward':
-      case 'mutationOffer':
-        body = <RewardView run={run} dispatch={dispatch} />;
-        break;
-      case 'recruit':
-        body = <RecruitView run={run} dispatch={dispatch} />;
-        break;
-      case 'place':
-        body = <PlaceView key={`${p.upgradeId}-${p.step.kind}`} run={run} dispatch={dispatch} />;
-        break;
-      case 'shop':
-        body = <ShopView run={run} dispatch={dispatch} />;
-        break;
-      case 'event':
-        body = <EventView run={run} dispatch={dispatch} />;
-        break;
-      case 'sacrifice':
-        body = <SacrificeView run={run} dispatch={dispatch} />;
-        break;
-      case 'defeat':
-        body = <DefeatView run={run} dispatch={dispatch} />;
-        break;
-    }
-  }
-
+  const match = useGame((s) => s.match);
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col gap-4 p-3 lg:p-4">
-      {header}
-      {error ? <div className="rounded-md bg-blood-600/30 px-3 py-2 text-sm text-blood-300">{error}</div> : null}
-      <main className="flex-1 py-2">{body}</main>
-      {showBuild ? <BuildPanel run={run} onClose={() => setShowBuild(false)} /> : null}
-      {showFormation ? (
-        <FormationEditor
-          run={run}
-          onClose={() => setShowFormation(false)}
-          onSave={(roster) => {
-            if (dispatch({ type: 'formation', roster })) setShowFormation(false);
-          }}
-        />
-      ) : null}
+    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-4 p-3 py-5 sm:p-5">
+      {!run ? (
+        <RunSetup />
+      ) : (
+        <>
+          <RunHud run={run} />
+          {run.phase === 'map' || run.phase === 'prebattle' ? <Notice run={run} /> : null}
+          {run.phase === 'start' || run.phase === 'reward' || run.phase === 'treasure' ? <RewardView key={`${run.counter}`} run={run} /> : null}
+          {run.phase === 'map' ? <MapView run={run} /> : null}
+          {run.phase === 'prebattle' ? <PreBattleView run={run} /> : null}
+          {run.phase === 'shop' ? <ShopView run={run} /> : null}
+          {run.phase === 'rest' ? <RestView run={run} /> : null}
+          {run.phase === 'event' ? <EventView key={run.event?.id} run={run} /> : null}
+          {run.phase === 'victory' || run.phase === 'defeat' ? (
+            <>
+              <Notice run={run} />
+              <EndView run={run} />
+            </>
+          ) : null}
+          {run.phase === 'battle' ? (
+            <section className="panel flex flex-col items-center gap-3 p-6">
+              <p className="text-ink-200">{run.enemy?.name}와(과)의 대국이 진행 중입니다.</p>
+              <button type="button" className="btn btn-gold" disabled={!match} onClick={() => go('game')}>
+                대국으로 돌아가기
+              </button>
+            </section>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
