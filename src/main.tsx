@@ -9,10 +9,11 @@ import './index.css';
 import { App } from './App';
 import { useGame } from './state/gameStore';
 import { useAppStore } from './state/appStore';
+import { useRun } from './state/runStore';
 
 // Dev-only handles for scripted UI checks (stripped from production builds).
 if (import.meta.env.DEV) {
-  (window as unknown as Record<string, unknown>).__breakchess = { useGame, useAppStore };
+  (window as unknown as Record<string, unknown>).__breakchess = { useGame, useAppStore, useRun };
 }
 
 createRoot(document.getElementById('root')!).render(

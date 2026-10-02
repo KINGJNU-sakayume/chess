@@ -80,9 +80,9 @@ export function AugmentPanel({ m, color }: { m: MatchState; color: Color }) {
       <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-ink-200">
         <span className={`h-3 w-3 rounded-full border ${color === 0 ? 'border-[#2a2018] bg-[#f4ecdc]' : 'border-[#e9dcc8] bg-[#2a2230]'}`} />
         {title}
-        <span className="ml-auto text-xs font-normal text-ink-400">{side.cards.length}/3</span>
+        <span className="ml-auto text-xs font-normal text-ink-400">{m.setup.drafts === false ? `${side.cards.length}개` : `${side.cards.length}/3`}</span>
       </h3>
-      {side.cards.length === 0 ? <p className="text-xs text-ink-400">아직 고른 증강이 없습니다.</p> : null}
+      {side.cards.length === 0 ? <p className="text-xs text-ink-400">{m.setup.drafts === false ? '증강이 없습니다.' : '아직 고른 증강이 없습니다.'}</p> : null}
       <ul className="flex flex-col gap-2">
         {side.cards.map((c) => {
           const def = cardById(c.id);
@@ -163,7 +163,7 @@ export function StatusCard({ m }: { m: MatchState }) {
       <div className="flex items-center gap-2 text-xs text-ink-400">
         <span>{m.pos.fullmove}수째</span>
         <span>·</span>
-        <span>{next === null ? '증강 선택 3회 모두 완료' : `${(next >> 1) + 1}수째에 다음 증강 선택`}</span>
+        {m.setup.drafts === false ? null : <span>{next === null ? '증강 선택 3회 모두 완료' : `${(next >> 1) + 1}수째에 다음 증강 선택`}</span>}
         {targeting ? (
           <button type="button" className="btn ml-auto px-2 py-1 text-xs" onClick={cancel}>
             취소

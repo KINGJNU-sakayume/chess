@@ -41,6 +41,8 @@ interface GameStore {
 
   start: (setup: MatchSetup) => void;
   resume: () => boolean;
+  /** Rebuild a game from its setup and actions (run battles after a reload). */
+  restore: (setup: MatchSetup, actions: MatchAction[]) => void;
   clickSquare: (sq: number) => void;
   pick: (card: string) => void;
   reroll: () => void;
@@ -66,7 +68,16 @@ export function hasSavedGame(): boolean {
   }
 }
 
+/** Listeners told about every committed match (the run store persists run battles this way). */
+const listeners = new Set<(m: MatchState) => void>();
+export const onMatchChange = (fn: (m: MatchState) => void): (() => void) => {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+};
+
 function save(m: MatchState): void {
+  for (const fn of listeners) fn(m);
+  if (m.setup.context === 'run') return;
   try {
     if (m.phase === 'over') localStorage.removeItem(SAVE_KEY);
     else localStorage.setItem(SAVE_KEY, JSON.stringify({ setup: m.setup, actions: m.actions }));
@@ -176,6 +187,13 @@ export const useGame = create<GameStore>((set, get) => {
       const match = createMatch(setup);
       set({ match, selected: null, targeting: null, promotion: null, thinking: false, reveal: null, notice: null });
       save(match);
+      drive();
+    },
+
+    restore: (setup, actions) => {
+      reset();
+      const match = replay(setup, actions);
+      set({ match, selected: null, targeting: null, promotion: null, thinking: false, reveal: null, notice: null });
       drive();
     },
 

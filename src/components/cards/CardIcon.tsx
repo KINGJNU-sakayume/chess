@@ -234,6 +234,26 @@ const ICONS: Record<IconKey, ReactNode> = {
       <path {...thin} d="M50 40 V80 M36 54 H64" />
     </>
   ),
+  vanguard: (
+    <>
+      <Piece type="knight" x={2} y={20} size={72} />
+      <path {...line} d="M70 92 V12" />
+      <path d="M70 12 H96 L88 23 L96 34 H70 Z" fill="currentColor" />
+    </>
+  ),
+  mercenary: (
+    <>
+      <Piece type="rook" x={2} y={18} size={72} />
+      <circle cx={78} cy={28} r={16} fill="currentColor" fillOpacity={0.25} stroke="currentColor" strokeWidth={5} />
+      <path {...thin} d="M78 18 V38 M72 23 H82 Q86 28 78 28 Q70 28 74 33 H84" />
+    </>
+  ),
+  'twin-queen': (
+    <>
+      <Piece type="queen" x={-4} y={22} size={64} />
+      <Piece type="queen" x={38} y={10} size={66} />
+    </>
+  ),
   flag: (
     <>
       <Piece type="pawn" x={-2} y={24} size={64} />

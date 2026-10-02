@@ -3,6 +3,8 @@ import { COLOR_NAME, type Color } from '../../engine/game/types';
 import type { MatchState, ResultReason } from '../../engine/match/match';
 
 export function sideName(m: MatchState, c: Color): string {
+  const named = m.setup.names?.[c];
+  if (named) return named;
   if (m.setup.mode === 'ai') return c === m.setup.human ? '나' : `AI · ${levelOf(m.setup.level).name}`;
   return COLOR_NAME[c];
 }
@@ -32,7 +34,8 @@ export function resultDetail(m: MatchState): string {
   if (!r) return '';
   if (r.winner === -1) return REASON_TEXT[r.reason];
   const loser = (r.winner ^ 1) as Color;
-  if (r.reason === 'resign') return `${sideName(m, loser)}(${COLOR_NAME[loser]})가 기권했습니다`;
-  if (r.reason === 'no_moves') return `${sideName(m, loser)}(${COLOR_NAME[loser]})가 둘 수 있는 수가 없습니다`;
-  return `${sideName(m, r.winner)}(${COLOR_NAME[r.winner]}): ${REASON_TEXT[r.reason]}`;
+  const who = (c: Color) => (m.setup.mode === 'local' ? COLOR_NAME[c] : `${sideName(m, c)}(${COLOR_NAME[c]})`);
+  if (r.reason === 'resign') return `${who(loser)}이(가) 기권했습니다`;
+  if (r.reason === 'no_moves') return `${who(loser)}에게 둘 수 있는 수가 없습니다`;
+  return `${who(r.winner)}: ${REASON_TEXT[r.reason]}`;
 }

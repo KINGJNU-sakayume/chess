@@ -42,12 +42,15 @@ export function CardView({
   selected = false,
   footer,
   className = '',
+  inRun = false,
 }: {
   id: string;
   onClick?: () => void;
   selected?: boolean;
   footer?: ReactNode;
   className?: string;
+  /** Shown in a roguelike run: one-time effects fire at the start of every game. */
+  inRun?: boolean;
 }) {
   const def = cardById(id);
   const t = TIER_STYLE[def.tier];
@@ -67,6 +70,8 @@ export function CardView({
         </div>
       </div>
       <p className="text-sm leading-relaxed text-ink-100">{def.text}</p>
+      {inRun && def.onAcquire ? <p className="text-xs text-gold-400">도전에서는 매 대국 시작 시 적용됩니다.</p> : null}
+      {inRun && def.kind === 'active' ? <p className="text-xs text-arcane-300">사용 횟수는 대국마다 다시 채워집니다.</p> : null}
       {footer}
     </div>
   );

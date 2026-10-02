@@ -130,25 +130,47 @@ export function RevealModal({ m }: { m: MatchState }) {
 }
 
 /** Game over: result, reason, next steps. */
-export function ResultModal({ m, onRematch, onNew, onClose }: { m: MatchState; onRematch: () => void; onNew: () => void; onClose: () => void }) {
+export function ResultModal({
+  m,
+  run = false,
+  onContinue,
+  onRematch,
+  onNew,
+  onClose,
+}: {
+  m: MatchState;
+  run?: boolean;
+  onContinue?: () => void;
+  onRematch: () => void;
+  onNew: () => void;
+  onClose: () => void;
+}) {
   if (m.phase !== 'over') return null;
   const win = m.result?.winner;
   const good = m.setup.mode === 'local' || win === -1 || win === m.setup.human;
   return (
     <div className="modal-enter absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-4">
-      <div className="panel flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
+      <div className="panel panel-solid flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
         <div className={`font-serif-kr text-4xl font-bold ${good ? 'text-gold-300' : 'text-blood-300'}`}>{resultTitle(m)}</div>
         <p className="text-sm text-ink-200">{resultDetail(m)}</p>
         <p className="text-xs text-ink-400">
-          {m.pos.fullmove}수 · 사용한 증강: {m.sides[0].cards.length + m.sides[1].cards.length}장
+          {m.pos.fullmove}수 · 양쪽 증강 {m.sides[0].cards.length + m.sides[1].cards.length}장
         </p>
         <div className="mt-2 flex w-full flex-col gap-2">
-          <button type="button" className="btn btn-gold" onClick={onRematch}>
-            같은 설정으로 다시 하기
-          </button>
-          <button type="button" className="btn" onClick={onNew}>
-            새 대국 설정
-          </button>
+          {run ? (
+            <button type="button" className="btn btn-gold" onClick={onContinue}>
+              {win === m.setup.human ? '보상 받으러 가기' : '지도로 돌아가기'}
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn btn-gold" onClick={onRematch}>
+                같은 설정으로 다시 하기
+              </button>
+              <button type="button" className="btn" onClick={onNew}>
+                새 대국 설정
+              </button>
+            </>
+          )}
           <button type="button" className="btn btn-ghost text-xs" onClick={onClose}>
             보드 살펴보기
           </button>
@@ -162,7 +184,7 @@ export function ResultModal({ m, onRematch, onNew, onClose }: { m: MatchState; o
 export function PromotionPicker({ moves, color, onPick, onCancel }: { moves: number[]; color: Color; onPick: (m: number) => void; onCancel: () => void }) {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]" onClick={onCancel}>
-      <div className="panel flex flex-col items-center gap-3 p-4" onClick={(e) => e.stopPropagation()}>
+      <div className="panel panel-solid flex flex-col items-center gap-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="text-sm font-bold text-gold-300">승진할 기물을 고르세요</div>
         <div className="flex gap-2">
           {moves.map((mv) => {

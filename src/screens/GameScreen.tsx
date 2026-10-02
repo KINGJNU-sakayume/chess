@@ -10,6 +10,7 @@ import { cardById } from '../engine/augments/cards';
 import { COLOR_NAME, sqName, type Color } from '../engine/game/types';
 import { useAppStore } from '../state/appStore';
 import { humanControls, useGame } from '../state/gameStore';
+import { useRun } from '../state/runStore';
 import { moveMs, useSettings, type AnimSpeed } from '../state/settingsStore';
 
 function newSeed(): string {
@@ -89,10 +90,14 @@ export function GameScreen() {
   const [showResult, setShowResult] = useState(true);
   const [confirmResign, setConfirmResign] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const run = useRun((s) => s.run);
+  const finishBattle = useRun((s) => s.finishBattle);
+  const spendUndo = useRun((s) => s.spendUndo);
+  const inRun = m?.setup.context === 'run';
 
   useEffect(() => {
-    if (!m) go('title');
-  }, [m, go]);
+    if (!m) go(run ? 'run' : 'title');
+  }, [m, go, run]);
 
   useEffect(() => {
     if (m?.phase === 'over') setShowResult(true);
@@ -125,7 +130,13 @@ export function GameScreen() {
   const top = (bottom ^ 1) as Color;
   const flipped = bottom === 1;
   const speed = settings.animSpeed;
-  const canUndo = m.actions.some((a) => a.type === 'move' && (m.setup.mode === 'local' || a.color === m.setup.human)) && m.phase !== 'draft';
+  const hasUndoableMove = m.actions.some((a) => a.type === 'move' && (m.setup.mode === 'local' || a.color === m.setup.human)) && m.phase !== 'draft';
+  const canUndo = hasUndoableMove && (!inRun || (m.phase !== 'over' && (run?.undos ?? 0) > 0));
+  const undo = () => {
+    if (inRun && !spendUndo()) return;
+    game.undo();
+  };
+  const outcome = (): 'win' | 'loss' | 'draw' => (!m.result || m.result.winner === -1 ? 'draw' : m.result.winner === m.setup.human ? 'win' : 'loss');
   const panelOrder: Color[] = m.setup.mode === 'ai' ? [m.setup.human, (m.setup.human ^ 1) as Color] : [bottom, top];
 
   return (
@@ -148,6 +159,11 @@ export function GameScreen() {
           {showResult ? (
             <ResultModal
               m={m}
+              run={inRun}
+              onContinue={() => {
+                finishBattle(outcome());
+                go('run');
+              }}
               onRematch={() => game.start({ ...m.setup, seed: newSeed(), human: m.setup.mode === 'ai' ? m.setup.human : 0 })}
               onNew={() => go('setup')}
               onClose={() => setShowResult(false)}
@@ -159,11 +175,15 @@ export function GameScreen() {
 
       <aside className="flex w-full flex-col gap-3 lg:w-[380px] lg:shrink-0">
         <div className="flex items-center gap-2">
-          <button type="button" className="btn btn-ghost px-2 text-xs" onClick={() => go('title')}>
-            ← 메뉴
+          <button type="button" className="btn btn-ghost px-2 text-xs" onClick={() => go(inRun ? 'run' : 'title')}>
+            {inRun ? '← 지도' : '← 메뉴'}
           </button>
           <div className="min-w-0 truncate text-sm text-ink-300">
-            {m.setup.mode === 'ai' ? `AI 대전 · 나는 ${COLOR_NAME[m.setup.human]}` : '2인 대전 (한 화면)'}
+            {inRun && run
+              ? `도전 ${run.act}막 · ${run.enemy?.kind === 'boss' ? '보스' : run.enemy?.kind === 'elite' ? '정예' : '대국'} · 목숨 ${run.lives}`
+              : m.setup.mode === 'ai'
+                ? `AI 대전 · 나는 ${COLOR_NAME[m.setup.human]}`
+                : '2인 대전 (한 화면)'}
           </div>
           <button type="button" className="btn btn-ghost ml-auto px-2 text-xs" onClick={() => setShowSettings((v) => !v)}>
             설정
@@ -180,8 +200,8 @@ export function GameScreen() {
         ))}
         <MoveList m={m} />
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2">
-          <button type="button" className="btn text-xs" disabled={!canUndo} onClick={game.undo}>
-            무르기
+          <button type="button" className="btn text-xs" disabled={!canUndo} onClick={undo}>
+            {inRun ? `무르기 (${run?.undos ?? 0})` : '무르기'}
           </button>
           <button type="button" className="btn text-xs" onClick={() => setFlipOverride((v) => !v)}>
             보드 뒤집기
@@ -201,12 +221,18 @@ export function GameScreen() {
                 } else setConfirmResign(true);
               }}
             >
-              {confirmResign ? '정말 기권할까요?' : '기권'}
+              {confirmResign ? (inRun ? '기권하면 패배합니다. 정말?' : '정말 기권할까요?') : '기권'}
             </button>
           )}
-          <button type="button" className="btn text-xs" onClick={() => go('setup')}>
-            새 대국
-          </button>
+          {inRun ? (
+            <button type="button" className="btn text-xs" onClick={() => go('run')}>
+              지도 보기
+            </button>
+          ) : (
+            <button type="button" className="btn text-xs" onClick={() => go('setup')}>
+              새 대국
+            </button>
+          )}
         </div>
       </aside>
 

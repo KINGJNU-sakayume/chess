@@ -15,7 +15,9 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ci": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "sim": "vitest run --config vitest.sim.config.ts tests/sim/runsim.test.ts --silent=false",
+    "sim:boss": "vitest run --config vitest.sim.config.ts tests/sim/bosssim.test.ts --silent=false"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",

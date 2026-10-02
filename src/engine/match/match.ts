@@ -34,6 +34,20 @@ export interface MatchSetup {
   /** AI strength 1..5. */
   level: number;
   seed: string;
+  /** In-game draft rounds at the start, move 10 and move 20 (default on). Runs turn them off. */
+  drafts?: boolean;
+  /** Augments each side brings into the game (runs), with extra uses for active cards. */
+  loadout?: [LoadoutCard[], LoadoutCard[]];
+  /** Display names per side (e.g. an enemy's name); null = default. */
+  names?: [string | null, string | null];
+  /** 'run' when the game is a battle inside a roguelike run. */
+  context?: 'free' | 'run';
+}
+
+export interface LoadoutCard {
+  id: string;
+  /** Extra uses per game for an active card (forged at rest sites). */
+  bonus?: number;
 }
 
 export interface OwnedCard {
@@ -181,15 +195,36 @@ export function createMatch(setup: MatchSetup, fen = START_FEN): MatchState {
     events: [],
     actions: [],
   };
+  if (setup.loadout) applyLoadout(s, setup.loadout);
   assignIds(s);
   maybeOpenRound(s);
   return s;
 }
 
+/** Give each side its augments before the first move: rules, start-of-game effects, uses. */
+function applyLoadout(s: MatchState, loadout: [LoadoutCard[], LoadoutCard[]]): void {
+  for (const color of [WHITE, BLACK] as Color[]) {
+    const side = s.sides[color];
+    for (const c of loadout[color]) {
+      const def = cardById(c.id);
+      if (side.cards.some((o) => o.id === c.id)) continue;
+      side.cards.push({ id: c.id, uses: def.kind === 'active' ? (def.uses ?? 1) + (c.bonus ?? 0) : 0 });
+    }
+    s.pos.setRules(color, compileRules(ownedIds(side)));
+  }
+  for (const color of [WHITE, BLACK] as Color[]) {
+    for (const c of s.sides[color].cards) cardById(c.id).onAcquire?.(s.pos, color);
+  }
+  s.pos.commit();
+  s.pos.refresh();
+  s.rep = { [s.pos.hashKey()]: 1 };
+  s.hashes = [[s.pos.hashLo, s.pos.hashHi]];
+}
+
 const ownedIds = (side: SideState): string[] => side.cards.map((c) => c.id);
 
 function maybeOpenRound(s: MatchState): void {
-  if (s.phase === 'over' || s.round >= DRAFT_ROUNDS) return;
+  if (s.phase === 'over' || s.round >= DRAFT_ROUNDS || s.setup.drafts === false) return;
   if (s.pos.ply < DRAFT_PLIES[s.round] || s.pos.side !== WHITE) return;
   s.round++;
   const base = roundTier(s.setup.seed, s.round);
@@ -412,6 +447,7 @@ export function undoActions(actions: readonly MatchAction[], color: Color): Matc
 }
 
 /** Ply at which the next draft round opens, or null if all rounds are done. */
-export const nextDraftPly = (s: MatchState): number | null => (s.round < DRAFT_ROUNDS ? DRAFT_PLIES[s.round] : null);
+export const nextDraftPly = (s: MatchState): number | null =>
+  s.setup.drafts !== false && s.round < DRAFT_ROUNDS ? DRAFT_PLIES[s.round] : null;
 
 export { tierIndex };

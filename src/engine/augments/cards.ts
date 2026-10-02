@@ -73,7 +73,10 @@ export type CardIcon =
   | 'grail'
   | 'crown-up'
   | 'halo'
-  | 'flag';
+  | 'flag'
+  | 'vanguard'
+  | 'mercenary'
+  | 'twin-queen';
 
 export interface DraftContext {
   pos: Position;
@@ -107,6 +110,8 @@ export interface CardDef {
   aiValue: (ctx: DraftContext) => number;
   /** Hint shown while choosing a target. */
   targetHint?: string;
+  /** False if the card makes no sense in a roguelike run (effects that only fire mid-game). */
+  run?: boolean;
 }
 
 // -------------------------------------------------------------------------
@@ -165,6 +170,21 @@ function revive(pos: Position, color: Color, sq: number, kinds: number[]): void 
   summon(pos, color, sq, kind);
 }
 
+/** Put a new piece on the colour's third rank (fourth if full), preferring the given files. */
+function deploy(pos: Position, color: Color, kind: number, files: number[]): void {
+  for (const rel of [2, 3]) {
+    const rank = color === WHITE ? rel : 7 - rel;
+    for (const f of files) {
+      const sq = rank * 8 + f;
+      if (freeSquare(pos, sq)) {
+        pos.setPiece(sq, kind | (color << 4));
+        return;
+      }
+    }
+  }
+}
+
+const ALL_FILES = [3, 4, 2, 5, 1, 6, 0, 7];
 
 const fixed =
   (v: number) =>
@@ -341,6 +361,17 @@ export const CARDS: readonly CardDef[] = [
     aiValue: (c) => 40 + 35 * count(c.pos, c.color, KNIGHT),
   },
   {
+    id: 'vanguard',
+    name: '선봉대',
+    tier: 'silver',
+    kind: 'passive',
+    category: 'summon',
+    icon: 'vanguard',
+    text: '즉시 자기 진영 3번째 줄의 빈 칸에 나이트를 하나 배치합니다.',
+    onAcquire: (pos, color) => deploy(pos, color, KNIGHT, [2, 5, 1, 6, 3, 4, 0, 7]),
+    aiValue: fixed(240),
+  },
+  {
     id: 'investment',
     name: '투자',
     tier: 'silver',
@@ -350,6 +381,7 @@ export const CARDS: readonly CardDef[] = [
     text: '다음 증강 선택지가 한 단계 높은 등급으로 나옵니다.',
     offerable: (c) => c.round < 3,
     aiValue: (c) => (c.round === 1 ? 105 : 85),
+    run: false,
   },
 
   // ------------------------------------------------------------------ Gold
@@ -527,6 +559,18 @@ export const CARDS: readonly CardDef[] = [
     },
   },
 
+  {
+    id: 'mercenary_rook',
+    name: '용병 룩',
+    tier: 'gold',
+    kind: 'passive',
+    category: 'summon',
+    icon: 'mercenary',
+    text: '즉시 자기 진영 3번째 줄의 빈 칸에 룩을 하나 배치합니다.',
+    onAcquire: (pos, color) => deploy(pos, color, ROOK, [0, 7, 1, 6, 2, 5, 3, 4]),
+    aiValue: fixed(400),
+  },
+
   // ----------------------------------------------------------------- Prism
   {
     id: 'amazon',
@@ -593,6 +637,7 @@ export const CARDS: readonly CardDef[] = [
       for (const sq of emptyOnRank(pos, pawnRank(color))) pos.setPiece(sq, PAWN | (color << 4));
     },
     offerable: (c) => emptyOnRank(c.pos, pawnRank(c.color)).length >= 3,
+    run: false,
     aiValue: (c) => 95 * emptyOnRank(c.pos, pawnRank(c.color)).length,
   },
   {
@@ -660,6 +705,17 @@ export const CARDS: readonly CardDef[] = [
     offerable: (c) => count(c.pos, c.color, PAWN) > 0,
     aiValue: (c) => 260 + 40 * count(c.pos, c.color, PAWN),
   },
+  {
+    id: 'second_queen',
+    name: '두 번째 여왕',
+    tier: 'prism',
+    kind: 'passive',
+    category: 'summon',
+    icon: 'twin-queen',
+    text: '즉시 자기 진영 3번째 줄의 빈 칸에 퀸을 하나 배치합니다.',
+    onAcquire: (pos, color) => deploy(pos, color, QUEEN, ALL_FILES),
+    aiValue: fixed(620),
+  },
 ];
 
 const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
@@ -671,3 +727,6 @@ export function cardById(id: string): CardDef {
 }
 
 export const hasCard = (id: string): boolean => BY_ID.has(id);
+
+/** Cards that can appear in a roguelike run. */
+export const RUN_CARDS: readonly CardDef[] = CARDS.filter((c) => c.run !== false);
