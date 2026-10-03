@@ -72,10 +72,11 @@ describe('match flow', () => {
     s = applyAction(s, { type: 'pick', color: WHITE, card: s.sides[WHITE].offer![0] });
     s = applyAction(s, { type: 'pick', color: BLACK, card: s.sides[BLACK].offer![0] });
     s.sides[WHITE].cards.push({ id: 'shield', uses: 1 }, { id: 'freeze', uses: 2 });
-    expect(cardTargets(s, WHITE, 'shield')).toContain(sq('d1'));
+    expect(cardTargets(s, WHITE, 'shield')).toContain(sq('b1'));
+    expect(cardTargets(s, WHITE, 'shield')).not.toContain(sq('d1'));
     expect(cardTargets(s, BLACK, 'shield')).toEqual([]);
-    s = applyAction(s, { type: 'card', color: WHITE, card: 'shield', sq: sq('d1') });
-    expect(s.pos.flags[sq('d1')] & 1).toBe(1);
+    s = applyAction(s, { type: 'card', color: WHITE, card: 'shield', sq: sq('b1') });
+    expect(s.pos.flags[sq('b1')] & 1).toBe(1);
     expect(cardTargets(s, WHITE, 'freeze')).toEqual([]);
     expect(() => applyAction(s, { type: 'card', color: WHITE, card: 'freeze', sq: sq('d8') })).toThrow();
     s = applyAction(s, { type: 'move', color: WHITE, move: findMove(s.pos, sq('e2'), sq('e4'))! });

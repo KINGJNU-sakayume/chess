@@ -102,11 +102,18 @@ export function RewardView({ run }: { run: RunState }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const reward = run.reward!;
   const isStart = run.phase === 'start';
+  const tiers = new Set(reward.cards.map((id) => cardById(id).tier));
+  const offerTier = tiers.size === 1 ? [...tiers][0] : null;
   const take = (card: string | null) => act(isStart ? { type: 'start-pick', card } : { type: 'take-reward', card });
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="text-center">
         <h2 className="font-serif-kr text-3xl font-bold text-gold-300">{reward.title}</h2>
+        {offerTier ? (
+          <div className="mt-2 flex items-center justify-center gap-2 text-sm text-ink-300">
+            <TierBadge tier={offerTier} /> 등급 증강
+          </div>
+        ) : null}
         {reward.gold ? (
           <div className="mt-2 flex items-center justify-center gap-1 text-sm font-bold text-gold-300">
             <CoinIcon className="h-5 w-5" /> +{reward.gold}

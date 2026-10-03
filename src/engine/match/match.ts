@@ -4,8 +4,8 @@ import { toSan } from '../game/notation';
 import { Position, START_FEN } from '../game/position';
 import {
   BLACK,
+  F_FROZEN,
   F_SHIELD,
-  KNIGHT,
   M_CASTLE,
   M_EP,
   M_WALL,
@@ -97,7 +97,7 @@ export interface MatchResult {
   reason: ResultReason;
 }
 
-export type MatchEventKind = 'capture' | 'bounce' | 'trap' | 'martyr' | 'promote' | 'wall' | 'oath' | 'card' | 'check';
+export type MatchEventKind = 'capture' | 'bounce' | 'thorns' | 'trap' | 'martyr' | 'promote' | 'wall' | 'oath' | 'card' | 'check';
 
 export interface MatchEvent {
   kind: MatchEventKind;
@@ -401,8 +401,10 @@ function doMove(s: MatchState, color: Color, m: number): void {
 
   // Events for the UI.
   const ev = s.events;
-  if (bounced) ev.push({ kind: 'bounce', sq: m & M_EP ? to - (color === WHITE ? 8 : -8) : to });
-  else {
+  if (bounced) {
+    ev.push({ kind: 'bounce', sq: m & M_EP ? to - (color === WHITE ? 8 : -8) : to });
+    if (pos.flags[from] & F_FROZEN && !(flagsBefore[from] & F_FROZEN)) ev.push({ kind: 'thorns', sq: from });
+  } else {
     const victimSq = m & M_EP ? to - (color === WHITE ? 8 : -8) : to;
     if (before[victimSq] !== 0 && (victimSq !== to || before[to] >> 4 !== color)) ev.push({ kind: 'capture', sq: victimSq });
     if (m & M_WALL) ev.push({ kind: 'wall', sq: to });
@@ -410,7 +412,7 @@ function doMove(s: MatchState, color: Color, m: number): void {
     if (terrainBefore[to] === trap && pos.terrain[to] !== trap) ev.push({ kind: 'trap', sq: to });
     else if (pos.board[to] === 0 && before[victimSq] !== 0) ev.push({ kind: 'martyr', sq: to });
     if (movePromo(m) && pos.board[to] !== 0) ev.push({ kind: 'promote', sq: to });
-    if ((pos.board[to] & 15) === KNIGHT && pos.flags[to] & F_SHIELD && !(flagsBefore[from] & F_SHIELD)) ev.push({ kind: 'oath', sq: to });
+    if (pos.board[to] !== 0 && pos.flags[to] & F_SHIELD && !(flagsBefore[from] & F_SHIELD) && before[victimSq] !== 0) ev.push({ kind: 'oath', sq: to });
   }
   const enemyKing = pos.kingSq[other(color)];
   if (enemyKing >= 0 && pos.winner < 0 && pos.inCheck(other(color))) ev.push({ kind: 'check', sq: enemyKing });

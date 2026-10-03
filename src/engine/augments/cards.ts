@@ -14,6 +14,7 @@ import {
   T_NONE,
   T_WALL,
   WHITE,
+  relRank,
   trapOf,
   type Color,
 } from '../game/types';
@@ -76,13 +77,21 @@ export type CardIcon =
   | 'flag'
   | 'vanguard'
   | 'mercenary'
-  | 'twin-queen';
+  | 'twin-queen'
+  | 'knight-up'
+  | 'shield-break'
+  | 'pawn-shield'
+  | 'demote'
+  | 'thorns'
+  | 'glacier';
 
 export interface DraftContext {
   pos: Position;
   color: Color;
   /** Draft round, 1..3. */
   round: number;
+  /** Cards the side already owns. */
+  owned: readonly string[];
 }
 
 export interface CardDef {
@@ -112,6 +121,8 @@ export interface CardDef {
   targetHint?: string;
   /** False if the card makes no sense in a roguelike run (effects that only fire mid-game). */
   run?: boolean;
+  /** Cards that cannot be owned together with this one (checked both ways). */
+  conflicts?: string[];
 }
 
 // -------------------------------------------------------------------------
@@ -186,6 +197,24 @@ function deploy(pos: Position, color: Color, kind: number, files: number[]): voi
 
 const ALL_FILES = [3, 4, 2, 5, 1, 6, 0, 7];
 
+/** Kings get shields only from the crown cards, and queens never: a shielded queen raids for free. */
+const shieldable = (kind: number): boolean => kind !== KING && kind !== QUEEN;
+
+/** Turn a piece into another kind; the new piece cannot move this turn (like a summon). */
+function transform(pos: Position, color: Color, sq: number, kind: number): void {
+  pos.setPiece(sq, kind | (color << 4));
+  pos.setFlags(sq, pos.flags[sq] | F_FROZEN);
+}
+
+/** Does the side have any way to own shields (thorns needs one)? */
+function hasShieldSource(c: DraftContext): boolean {
+  const r = c.pos.rules[c.color];
+  if (r.knightOath || r.pawnOath) return true;
+  if (c.owned.some((id) => SHIELD_CARDS.includes(id))) return true;
+  return squaresWhere((sq) => own(c.pos, sq, c.color) && (c.pos.flags[sq] & F_SHIELD) !== 0).length > 0;
+}
+const SHIELD_CARDS = ['shield', 'royal_aegis', 'royal_guard', 'divine_aegis', 'knight_oath', 'pawn_grit', 'revival'];
+
 const fixed =
   (v: number) =>
   (): number =>
@@ -217,11 +246,11 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'piece',
     icon: 'cross',
-    text: '비숍이 상하좌우로 한 칸 이동하고 잡을 수 있습니다. 비숍이 다른 색 칸으로 건너갈 수 있게 됩니다.',
+    text: '비숍(대주교 포함)이 상하좌우로 한 칸 이동하고 잡을 수 있습니다. 비숍이 다른 색 칸으로 건너갈 수 있게 됩니다.',
     rules: (r) => {
       r.bishopStep = true;
     },
-    aiValue: (c) => 70 + 50 * count(c.pos, c.color, BISHOP),
+    aiValue: (c) => 70 + 50 * count(c.pos, c.color, BISHOP) + 35 * count(c.pos, c.color, ARCHBISHOP),
   },
   {
     id: 'rook_step',
@@ -230,11 +259,11 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'piece',
     icon: 'tower',
-    text: '룩이 대각선으로 한 칸 이동하고 잡을 수 있습니다.',
+    text: '룩(재상 포함)이 대각선으로 한 칸 이동하고 잡을 수 있습니다.',
     rules: (r) => {
       r.rookStep = true;
     },
-    aiValue: (c) => 60 + 45 * count(c.pos, c.color, ROOK),
+    aiValue: (c) => 60 + 45 * count(c.pos, c.color, ROOK) + 30 * count(c.pos, c.color, CHANCELLOR),
   },
   {
     id: 'pawn_sidestep',
@@ -243,11 +272,11 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'pawn',
     icon: 'sidestep',
-    text: '폰이 좌우로 한 칸 이동할 수 있습니다. 이 이동으로는 잡을 수 없습니다.',
+    text: '폰이 좌우로 한 칸 이동하거나, 좌우 바로 옆의 상대 기물을 잡을 수 있습니다.',
     rules: (r) => {
       r.pawnSidestep = true;
     },
-    aiValue: (c) => 40 + 9 * count(c.pos, c.color, PAWN),
+    aiValue: (c) => 50 + 12 * count(c.pos, c.color, PAWN),
   },
   {
     id: 'pawn_charge',
@@ -273,6 +302,7 @@ export const CARDS: readonly CardDef[] = [
     rules: (r) => {
       r.pawnPike = true;
     },
+    offerable: (c) => !c.pos.rules[c.color].pawnPike,
     aiValue: (c) => 45 + 9 * count(c.pos, c.color, PAWN),
   },
   {
@@ -282,11 +312,11 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'pawn',
     icon: 'retreat',
-    text: '폰이 뒤로 한 칸 물러날 수 있습니다. 잡을 수는 없고, 첫째 줄로는 물러날 수 없습니다.',
+    text: '폰이 뒤로 한 칸 물러나거나, 대각선 뒤로 한 칸 잡을 수 있습니다. 첫째 줄로는 물러날 수 없습니다.',
     rules: (r) => {
       r.pawnRetreat = true;
     },
-    aiValue: (c) => 35 + 8 * count(c.pos, c.color, PAWN),
+    aiValue: (c) => 45 + 11 * count(c.pos, c.color, PAWN),
   },
   {
     id: 'reinforce',
@@ -307,7 +337,7 @@ export const CARDS: readonly CardDef[] = [
     name: '저격',
     tier: 'silver',
     kind: 'active',
-    uses: 1,
+    uses: 2,
     category: 'tactic',
     icon: 'crosshair',
     text: '상대 폰 하나를 제거합니다. 보호막이 있는 폰이면 보호막만 깨집니다.',
@@ -316,7 +346,7 @@ export const CARDS: readonly CardDef[] = [
     apply: (pos, _color, sq) => {
       pos.destroy(sq);
     },
-    aiValue: fixed(110),
+    aiValue: fixed(150),
   },
   {
     id: 'shield',
@@ -326,10 +356,10 @@ export const CARDS: readonly CardDef[] = [
     uses: 1,
     category: 'defense',
     icon: 'shield',
-    text: '킹이 아닌 아군 기물 하나에 보호막을 씌웁니다. 보호막은 그 기물이 처음 제거될 때 대신 깨지고, 잡으려던 기물은 제자리로 돌아갑니다.',
+    text: '킹과 퀸이 아닌 아군 기물 하나에 보호막을 씌웁니다. 보호막은 그 기물이 처음 제거될 때 대신 깨지고, 잡으려던 기물은 제자리로 돌아갑니다.',
     targetHint: '보호막을 씌울 아군 기물을 고르세요.',
     targets: (pos, color) =>
-      squaresWhere((sq) => own(pos, sq, color) && (pos.board[sq] & 15) !== KING && !(pos.flags[sq] & F_SHIELD)),
+      squaresWhere((sq) => own(pos, sq, color) && shieldable(pos.board[sq] & 15) && !(pos.flags[sq] & F_SHIELD)),
     apply: (pos, _color, sq) => pos.setFlags(sq, pos.flags[sq] | F_SHIELD),
     aiValue: fixed(120),
   },
@@ -338,27 +368,103 @@ export const CARDS: readonly CardDef[] = [
     name: '바리케이드',
     tier: 'silver',
     kind: 'active',
-    uses: 2,
+    uses: 3,
     category: 'tactic',
     icon: 'wall',
     text: '3~6번째 줄의 빈 칸에 바리케이드를 세웁니다. 바리케이드는 모든 기물의 길을 막지만, 기물이 잡듯이 들어가 부술 수 있습니다.',
     targetHint: '바리케이드를 세울 칸을 고르세요.',
     targets: (pos) => middleSquares(pos),
     apply: (pos, _color, sq) => pos.setTerrain(sq, T_WALL),
-    aiValue: fixed(75),
+    aiValue: fixed(95),
   },
   {
-    id: 'knight_oath',
-    name: '기사의 맹세',
+    id: 'conscript',
+    name: '징집',
+    tier: 'silver',
+    kind: 'active',
+    uses: 1,
+    category: 'summon',
+    icon: 'horse',
+    text: '첫째 줄(백은 1번째, 흑은 8번째 줄)의 빈 칸에 나이트를 하나 소환합니다. 소환된 나이트는 그 턴에는 움직일 수 없습니다.',
+    targetHint: '나이트를 소환할 칸을 고르세요.',
+    targets: (pos, color) => emptyOnRank(pos, backRank(color)),
+    apply: (pos, color, sq) => summon(pos, color, sq, KNIGHT),
+    aiValue: (c) => (c.round === 1 ? 170 : 210),
+  },
+  {
+    id: 'knighting',
+    name: '기사 서임',
+    tier: 'silver',
+    kind: 'active',
+    uses: 1,
+    category: 'pawn',
+    icon: 'knight-up',
+    text: '아군 폰 하나를 나이트로 서임합니다. 서임된 나이트는 그 턴에는 움직일 수 없습니다.',
+    targetHint: '나이트로 서임할 아군 폰을 고르세요.',
+    targets: (pos, color) => squaresWhere((sq) => own(pos, sq, color, PAWN)),
+    apply: (pos, color, sq) => transform(pos, color, sq, KNIGHT),
+    aiValue: fixed(150),
+  },
+  {
+    id: 'shield_breaker',
+    name: '방패 깨기',
+    tier: 'silver',
+    kind: 'active',
+    uses: 2,
+    category: 'tactic',
+    icon: 'shield-break',
+    text: '킹이 아닌 상대 기물 하나의 보호막을 깨뜨립니다.',
+    targetHint: '보호막을 깨뜨릴 상대 기물을 고르세요.',
+    targets: (pos, color) =>
+      squaresWhere((sq) => enemy(pos, sq, color) && (pos.board[sq] & 15) !== KING && (pos.flags[sq] & F_SHIELD) !== 0),
+    apply: (pos, _color, sq) => pos.setFlags(sq, pos.flags[sq] & ~F_SHIELD),
+    aiValue: (c) => {
+      const them = (c.color ^ 1) as Color;
+      const shields = squaresWhere((sq) => own(c.pos, sq, them) && (c.pos.board[sq] & 15) !== KING && (c.pos.flags[sq] & F_SHIELD) !== 0).length;
+      return 70 + 45 * Math.min(2, shields);
+    },
+  },
+  {
+    id: 'pawn_grit',
+    name: '보병의 투지',
     tier: 'silver',
     kind: 'passive',
-    category: 'defense',
-    icon: 'oath',
-    text: '나이트가 기물을 잡으면 보호막을 얻습니다.',
+    category: 'pawn',
+    icon: 'pawn-shield',
+    text: '폰이 상대 기물을 잡으면 보호막을 얻습니다. 잡으면서 승진하면 승진한 기물이 보호막을 얻습니다(퀸 제외).',
     rules: (r) => {
-      r.knightOath = true;
+      r.pawnOath = true;
     },
-    aiValue: (c) => 40 + 35 * count(c.pos, c.color, KNIGHT),
+    aiValue: (c) => 40 + 10 * count(c.pos, c.color, PAWN),
+  },
+  {
+    id: 'early_promotion',
+    name: '조기 승진',
+    tier: 'silver',
+    kind: 'passive',
+    category: 'pawn',
+    icon: 'star-up',
+    text: '폰이 상대 진영 셋째 줄(백은 6번째, 흑은 3번째 줄)에 도착하면 승진합니다.',
+    rules: (r) => {
+      r.promoRank = Math.min(r.promoRank, 5);
+    },
+    offerable: (c) => c.pos.rules[c.color].promoRank > 5,
+    conflicts: ['breakthrough'],
+    aiValue: (c) => 120 + 18 * count(c.pos, c.color, PAWN),
+  },
+  {
+    id: 'minefield',
+    name: '지뢰 매설',
+    tier: 'silver',
+    kind: 'active',
+    uses: 3,
+    category: 'tactic',
+    icon: 'mine',
+    text: '3~6번째 줄의 빈 칸에 함정을 설치합니다. 함정 칸에 들어온 상대 기물은 제거되고, 킹이 들어오면 함정만 사라집니다.',
+    targetHint: '함정을 설치할 칸을 고르세요.',
+    targets: (pos) => middleSquares(pos),
+    apply: (pos, color, sq) => pos.setTerrain(sq, trapOf(color)),
+    aiValue: fixed(200),
   },
   {
     id: 'vanguard',
@@ -386,6 +492,19 @@ export const CARDS: readonly CardDef[] = [
 
   // ------------------------------------------------------------------ Gold
   {
+    id: 'knight_oath',
+    name: '기사의 맹세',
+    tier: 'gold',
+    kind: 'passive',
+    category: 'defense',
+    icon: 'oath',
+    text: '나이트가 기물을 잡으면 보호막을 얻습니다.',
+    rules: (r) => {
+      r.knightOath = true;
+    },
+    aiValue: (c) => 40 + 35 * count(c.pos, c.color, KNIGHT),
+  },
+  {
     id: 'ordain',
     name: '대주교 서품',
     tier: 'gold',
@@ -398,6 +517,7 @@ export const CARDS: readonly CardDef[] = [
     targets: (pos, color) => squaresWhere((sq) => own(pos, sq, color, BISHOP)),
     apply: (pos, color, sq) => pos.setPiece(sq, ARCHBISHOP | (color << 4)),
     offerable: (c) => count(c.pos, c.color, BISHOP) > 0,
+    conflicts: ['cavalry_order'],
     aiValue: fixed(330),
   },
   {
@@ -475,39 +595,11 @@ export const CARDS: readonly CardDef[] = [
     aiValue: (c) => 90 + 28 * count(c.pos, c.color, PAWN),
   },
   {
-    id: 'conscript',
-    name: '징집',
-    tier: 'gold',
-    kind: 'active',
-    uses: 1,
-    category: 'summon',
-    icon: 'horse',
-    text: '첫째 줄(백은 1번째, 흑은 8번째 줄)의 빈 칸에 나이트를 하나 소환합니다. 소환된 나이트는 그 턴에는 움직일 수 없습니다.',
-    targetHint: '나이트를 소환할 칸을 고르세요.',
-    targets: (pos, color) => emptyOnRank(pos, backRank(color)),
-    apply: (pos, color, sq) => summon(pos, color, sq, KNIGHT),
-    aiValue: (c) => (c.round === 1 ? 250 : 290),
-  },
-  {
-    id: 'early_promotion',
-    name: '조기 승진',
-    tier: 'gold',
-    kind: 'passive',
-    category: 'pawn',
-    icon: 'star-up',
-    text: '폰이 상대 진영 셋째 줄(백은 6번째, 흑은 3번째 줄)에 도착하면 승진합니다.',
-    rules: (r) => {
-      r.promoRank = Math.min(r.promoRank, 5);
-    },
-    offerable: (c) => c.pos.rules[c.color].promoRank > 5,
-    aiValue: (c) => 120 + 18 * count(c.pos, c.color, PAWN),
-  },
-  {
     id: 'resurrect',
     name: '부활',
     tier: 'gold',
     kind: 'active',
-    uses: 1,
+    uses: 2,
     category: 'summon',
     icon: 'phoenix',
     text: '잡힌 아군 나이트·비숍·룩 중 가장 강한 기물 하나를 첫째 줄 빈 칸에 되살립니다. 되살아난 기물은 그 턴에는 움직일 수 없습니다.',
@@ -517,32 +609,18 @@ export const CARDS: readonly CardDef[] = [
     aiValue: (c) => (bestLost(c.pos, c.color, [ROOK]) ? 320 : bestLost(c.pos, c.color, [KNIGHT, BISHOP]) ? 260 : 190),
   },
   {
-    id: 'minefield',
-    name: '지뢰 매설',
-    tier: 'gold',
-    kind: 'active',
-    uses: 2,
-    category: 'tactic',
-    icon: 'mine',
-    text: '3~6번째 줄의 빈 칸에 함정을 설치합니다. 함정 칸에 들어온 상대 기물은 제거되고, 킹이 들어오면 함정만 사라집니다.',
-    targetHint: '함정을 설치할 칸을 고르세요.',
-    targets: (pos) => middleSquares(pos),
-    apply: (pos, color, sq) => pos.setTerrain(sq, trapOf(color)),
-    aiValue: fixed(170),
-  },
-  {
     id: 'royal_guard',
     name: '근위대',
     tier: 'gold',
     kind: 'passive',
     category: 'defense',
     icon: 'guard',
-    text: '즉시 킹과 맞닿은 아군 기물 모두에게 보호막을 씌웁니다.',
+    text: '즉시 킹과 맞닿은 아군 기물 모두(퀸 제외)에게 보호막을 씌웁니다.',
     onAcquire: (pos, color) => {
       const k = pos.kingSq[color];
       if (k < 0) return;
       for (let sq = 0; sq < 64; sq++) {
-        if (sq === k || !own(pos, sq, color)) continue;
+        if (sq === k || !own(pos, sq, color) || !shieldable(pos.board[sq] & 15)) continue;
         if (Math.abs((sq & 7) - (k & 7)) <= 1 && Math.abs((sq >> 3) - (k >> 3)) <= 1) {
           pos.setFlags(sq, pos.flags[sq] | F_SHIELD);
         }
@@ -552,13 +630,12 @@ export const CARDS: readonly CardDef[] = [
       const k = c.pos.kingSq[c.color];
       let n = 0;
       for (let sq = 0; sq < 64; sq++) {
-        if (k < 0 || sq === k || !own(c.pos, sq, c.color) || c.pos.flags[sq] & F_SHIELD) continue;
+        if (k < 0 || sq === k || !own(c.pos, sq, c.color) || !shieldable(c.pos.board[sq] & 15) || c.pos.flags[sq] & F_SHIELD) continue;
         if (Math.abs((sq & 7) - (k & 7)) <= 1 && Math.abs((sq >> 3) - (k >> 3)) <= 1) n++;
       }
       return 40 + 55 * n;
     },
   },
-
   {
     id: 'mercenary_rook',
     name: '용병 룩',
@@ -569,6 +646,49 @@ export const CARDS: readonly CardDef[] = [
     text: '즉시 자기 진영 3번째 줄의 빈 칸에 룩을 하나 배치합니다.',
     onAcquire: (pos, color) => deploy(pos, color, ROOK, [0, 7, 1, 6, 2, 5, 3, 4]),
     aiValue: fixed(400),
+  },
+  {
+    id: 'demote',
+    name: '강등',
+    tier: 'gold',
+    kind: 'active',
+    uses: 1,
+    category: 'tactic',
+    icon: 'demote',
+    text: '상대 나이트·비숍·룩 하나를 폰으로 강등합니다. 상대의 첫째 줄과 승진하는 줄에 있는 기물은 고를 수 없고, 보호막이 있으면 보호막만 깨집니다.',
+    targetHint: '폰으로 강등할 상대 나이트·비숍·룩을 고르세요.',
+    targets: (pos, color) => {
+      const them = (color ^ 1) as Color;
+      return squaresWhere((sq) => {
+        const k = pos.board[sq] & 15;
+        if (!enemy(pos, sq, color) || (k !== KNIGHT && k !== BISHOP && k !== ROOK)) return false;
+        const rel = relRank(sq, them);
+        return rel >= 1 && rel < pos.rules[them].promoRank;
+      });
+    },
+    apply: (pos, color, sq) => {
+      const f = pos.flags[sq];
+      if (f & F_SHIELD) pos.setFlags(sq, f & ~F_SHIELD);
+      else pos.setPiece(sq, PAWN | ((color ^ 1) << 4));
+    },
+    aiValue: fixed(280),
+  },
+  {
+    id: 'thorns',
+    name: '가시 갑옷',
+    tier: 'gold',
+    kind: 'passive',
+    category: 'defense',
+    icon: 'thorns',
+    text: '당신 기물의 보호막이 상대의 잡기를 막아 내면, 잡으려던 기물이 얼어붙어 상대의 다음 턴 동안 움직이거나 잡을 수 없습니다. 킹은 얼지 않습니다.',
+    rules: (r) => {
+      r.thornShield = true;
+    },
+    offerable: hasShieldSource,
+    aiValue: (c) => {
+      const shields = squaresWhere((sq) => own(c.pos, sq, c.color) && (c.pos.flags[sq] & F_SHIELD) !== 0).length;
+      return 110 + 25 * Math.min(6, shields);
+    },
   },
 
   // ----------------------------------------------------------------- Prism
@@ -592,11 +712,11 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'victory',
     icon: 'hill',
-    text: '당신의 킹이 중앙 네 칸(d4·e4·d5·e5) 중 하나에 들어서면 즉시 승리합니다.',
+    text: '당신의 킹이 중앙 네 칸(d4·e4·d5·e5) 중 하나에 들어선 뒤, 상대가 다음 턴에 그 킹을 잡지 못하면 승리합니다.',
     rules: (r) => {
       r.kingOfTheHill = true;
     },
-    aiValue: fixed(480),
+    aiValue: fixed(440),
   },
   {
     id: 'three_check',
@@ -623,6 +743,7 @@ export const CARDS: readonly CardDef[] = [
       for (let sq = 0; sq < 64; sq++) if (own(pos, sq, color, BISHOP)) pos.setPiece(sq, ARCHBISHOP | (color << 4));
     },
     offerable: (c) => count(c.pos, c.color, BISHOP) > 0,
+    conflicts: ['ordain'],
     aiValue: (c) => 120 + 330 * count(c.pos, c.color, BISHOP),
   },
   {
@@ -648,26 +769,29 @@ export const CARDS: readonly CardDef[] = [
     uses: 1,
     category: 'summon',
     icon: 'grail',
-    text: '잡힌 아군 기물 중 가장 강한 기물(킹과 폰 제외) 하나를 첫째 줄 빈 칸에 되살립니다. 되살아난 기물은 그 턴에는 움직일 수 없습니다.',
+    text: '잡힌 아군 기물 중 가장 강한 기물(킹과 폰 제외) 하나를 첫째 줄 빈 칸에 되살리고, 퀸이 아니면 보호막을 씌웁니다. 되살아난 기물은 그 턴에는 움직일 수 없습니다.',
     targetHint: '기물을 되살릴 칸을 고르세요.',
     targets: (pos, color) =>
       bestLost(pos, color, [QUEEN, CHANCELLOR, ARCHBISHOP, ROOK, BISHOP, KNIGHT]) ? emptyOnRank(pos, backRank(color)) : [],
-    apply: (pos, color, sq) => revive(pos, color, sq, [QUEEN, CHANCELLOR, ARCHBISHOP, ROOK, BISHOP, KNIGHT]),
-    aiValue: (c) => (bestLost(c.pos, c.color, [QUEEN]) ? 620 : 400),
+    apply: (pos, color, sq) => {
+      revive(pos, color, sq, [QUEEN, CHANCELLOR, ARCHBISHOP, ROOK, BISHOP, KNIGHT]);
+      if (pos.board[sq] && shieldable(pos.board[sq] & 15)) pos.setFlags(sq, pos.flags[sq] | F_SHIELD);
+    },
+    aiValue: (c) => (bestLost(c.pos, c.color, [QUEEN]) ? 680 : 450),
   },
   {
     id: 'coronation',
     name: '대관식',
     tier: 'prism',
-    kind: 'passive',
+    kind: 'active',
+    uses: 1,
     category: 'pawn',
     icon: 'crown-up',
-    text: '폰이 상대 진영 넷째 줄(백은 5번째, 흑은 4번째 줄)에 도착하면 승진합니다.',
-    rules: (r) => {
-      r.promoRank = Math.min(r.promoRank, 4);
-    },
-    offerable: (c) => c.pos.rules[c.color].promoRank > 4,
-    aiValue: (c) => 220 + 35 * count(c.pos, c.color, PAWN),
+    text: '상대 진영(백은 5~7번째, 흑은 4~2번째 줄)에 들어간 아군 폰 하나에게 왕관을 씌워 퀸으로 바꿉니다. 퀸은 그 턴에는 움직일 수 없고, 수를 두어 승진한 것이 아니므로 돌파의 승리 조건이 되지 않습니다.',
+    targetHint: '퀸으로 바꿀 아군 폰을 고르세요.',
+    targets: (pos, color) => squaresWhere((sq) => own(pos, sq, color, PAWN) && relRank(sq, color) >= 4),
+    apply: (pos, color, sq) => transform(pos, color, sq, QUEEN),
+    aiValue: (c) => 360 + 60 * squaresWhere((sq) => own(c.pos, sq, c.color, PAWN) && relRank(sq, c.color) >= 3).length,
   },
   {
     id: 'divine_aegis',
@@ -676,17 +800,21 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'defense',
     icon: 'halo',
-    text: '즉시 킹을 제외한 모든 아군 기물이 보호막을 얻습니다.',
+    text: '즉시 킹·퀸·폰을 제외한 모든 아군 기물이 보호막을 얻습니다. 대신 당신의 기물이 상대 기물을 잡으면 그 기물의 보호막은 사라집니다.',
+    rules: (r) => {
+      r.shieldSpentOnCapture = true;
+    },
     onAcquire: (pos, color) => {
       for (let sq = 0; sq < 64; sq++) {
-        if (own(pos, sq, color) && (pos.board[sq] & 15) !== KING) pos.setFlags(sq, pos.flags[sq] | F_SHIELD);
+        const kind = pos.board[sq] & 15;
+        if (own(pos, sq, color) && shieldable(kind) && kind !== PAWN) pos.setFlags(sq, pos.flags[sq] | F_SHIELD);
       }
     },
     aiValue: (c) => {
-      let v = 0;
+      let v = 60;
       for (let sq = 0; sq < 64; sq++) {
         const code = c.pos.board[sq];
-        if (code && code >> 4 === c.color && (code & 15) !== KING && !(c.pos.flags[sq] & F_SHIELD)) v += (code & 15) === PAWN ? 25 : 55;
+        if (code && code >> 4 === c.color && shieldable(code & 15) && (code & 15) !== PAWN && !(c.pos.flags[sq] & F_SHIELD)) v += 55;
       }
       return v;
     },
@@ -698,11 +826,13 @@ export const CARDS: readonly CardDef[] = [
     kind: 'passive',
     category: 'victory',
     icon: 'flag',
-    text: '당신의 폰이 승진하면 즉시 승리합니다.',
+    text: '당신의 폰이 바로 앞의 상대 기물도 잡을 수 있고(창병), 수를 두어 승진하면 즉시 승리합니다. 승진 줄을 앞당기는 조기 승진과는 함께 가질 수 없습니다.',
     rules: (r) => {
       r.breakthrough = true;
+      r.pawnPike = true;
     },
-    offerable: (c) => count(c.pos, c.color, PAWN) > 0,
+    offerable: (c) => count(c.pos, c.color, PAWN) > 0 && c.pos.rules[c.color].promoRank === 7,
+    conflicts: ['early_promotion'],
     aiValue: (c) => 260 + 40 * count(c.pos, c.color, PAWN),
   },
   {
@@ -715,6 +845,34 @@ export const CARDS: readonly CardDef[] = [
     text: '즉시 자기 진영 3번째 줄의 빈 칸에 퀸을 하나 배치합니다.',
     onAcquire: (pos, color) => deploy(pos, color, QUEEN, ALL_FILES),
     aiValue: fixed(620),
+  },
+  {
+    id: 'ice_age',
+    name: '빙하기',
+    tier: 'prism',
+    kind: 'active',
+    uses: 2,
+    category: 'tactic',
+    icon: 'glacier',
+    text: '상대의 킹과 폰을 제외한 모든 기물을 얼립니다. 얼어붙은 기물은 상대의 다음 턴 동안 움직이거나 잡을 수 없습니다.',
+    targetHint: '상대 킹을 눌러 빙하기를 일으키세요.',
+    targets: (pos, color) => {
+      const them = (color ^ 1) as Color;
+      const k = pos.kingSq[them];
+      const any = squaresWhere((sq) => {
+        const kind = pos.board[sq] & 15;
+        return own(pos, sq, them) && kind !== KING && kind !== PAWN && !(pos.flags[sq] & F_FROZEN);
+      });
+      return k >= 0 && any.length ? [k] : [];
+    },
+    apply: (pos, color) => {
+      const them = (color ^ 1) as Color;
+      for (let sq = 0; sq < 64; sq++) {
+        const kind = pos.board[sq] & 15;
+        if (own(pos, sq, them) && kind !== KING && kind !== PAWN) pos.setFlags(sq, pos.flags[sq] | F_FROZEN);
+      }
+    },
+    aiValue: fixed(450),
   },
 ];
 
@@ -730,3 +888,17 @@ export const hasCard = (id: string): boolean => BY_ID.has(id);
 
 /** Cards that can appear in a roguelike run. */
 export const RUN_CARDS: readonly CardDef[] = CARDS.filter((c) => c.run !== false);
+
+/** Would `id` clash with a card already owned (either side's conflict list)? */
+export function conflictsWith(id: string, owned: readonly string[]): boolean {
+  const def = cardById(id);
+  return owned.some((o) => def.conflicts?.includes(o) || cardById(o).conflicts?.includes(id));
+}
+
+/** Names of the cards `id` cannot be owned with (both directions), for card text. */
+export function conflictNames(id: string): string[] {
+  const def = cardById(id);
+  const ids = new Set(def.conflicts ?? []);
+  for (const c of CARDS) if (c.conflicts?.includes(id)) ids.add(c.id);
+  return [...ids].map((x) => cardById(x).name);
+}

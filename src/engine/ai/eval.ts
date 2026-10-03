@@ -1,7 +1,9 @@
 import type { Position } from '../game/position';
 import type { SideRules } from '../game/rules';
 import {
+  ARCHBISHOP,
   BISHOP,
+  CHANCELLOR,
   F_SHIELD,
   KING,
   KNIGHT,
@@ -189,11 +191,12 @@ function kindBonus(r: SideRules, kind: number): [number, number] {
   switch (kind) {
     case PAWN: {
       let b = 0;
-      if (r.pawnSidestep) b += 8;
+      if (r.pawnSidestep) b += 14;
       if (r.pawnCharge) b += 6;
       if (r.pawnPike) b += 8;
-      if (r.pawnRetreat) b += 6;
+      if (r.pawnRetreat) b += 12;
       if (r.martyrPawns) b += 30;
+      if (r.pawnOath) b += 10;
       if (r.breakthrough) b += 25;
       b += (7 - r.promoRank) * 22;
       return [b, b];
@@ -208,6 +211,10 @@ function kindBonus(r: SideRules, kind: number): [number, number] {
       return r.queenKnight ? [320, 300] : [0, 0];
     case KING:
       return r.kingRange > 1 ? [20, 90] : [0, 0];
+    case ARCHBISHOP:
+      return r.bishopStep ? [70, 80] : [0, 0];
+    case CHANCELLOR:
+      return r.rookStep ? [60, 70] : [0, 0];
     default:
       return [0, 0];
   }
@@ -234,8 +241,13 @@ function bonusTable(r: SideRules): Int16Array {
 const ADVANCE_MG = [0, 70, 35, 18, 8, 0, 0, 0];
 const ADVANCE_EG = [0, 150, 80, 40, 18, 6, 0, 0];
 
-/** King-of-the-hill bonus by distance to the nearest centre square. */
-const HILL = [0, 230, 120, 55, 20, 0, 0, 0];
+/**
+ * King-of-the-hill bonus by distance to the nearest centre square, tapered: on
+ * the hill the King wins unless it is captured at once, so marching there pays
+ * in the endgame but is reckless while the opponent still has an army.
+ */
+const HILL_MG = [260, 90, 40, 15, 0, 0, 0, 0];
+const HILL_EG = [400, 230, 120, 55, 20, 0, 0, 0];
 /** Three-check bonus by checks already given. */
 const CHECKS = [0, 140, 380, 0];
 
@@ -293,20 +305,23 @@ export function evaluate(pos: Position): number {
   for (let color = 0; color < 2; color++) {
     const r = color === 0 ? r0 : r1;
     let bonus = 0;
+    let hillMg = 0;
+    let hillEg = 0;
     if (r.kingOfTheHill) {
       const k = pos.kingSq[color];
       if (k >= 0) {
         const d = Math.min(distance(k, 27), distance(k, 28), distance(k, 35), distance(k, 36));
-        bonus += HILL[d];
+        hillMg = HILL_MG[d];
+        hillEg = HILL_EG[d];
       }
     }
     if (r.threeCheck) bonus += CHECKS[Math.min(3, pos.checks[color])] + 40;
     if (color === 0) {
-      mg0 += bonus;
-      eg0 += bonus;
+      mg0 += bonus + hillMg;
+      eg0 += bonus + hillEg;
     } else {
-      mg1 += bonus;
-      eg1 += bonus;
+      mg1 += bonus + hillMg;
+      eg1 += bonus + hillEg;
     }
   }
 

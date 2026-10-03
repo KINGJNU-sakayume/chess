@@ -261,6 +261,46 @@ const ICONS: Record<IconKey, ReactNode> = {
       <path d="M66 10 H94 L86 22 L94 34 H66 Z" fill="currentColor" />
     </>
   ),
+  'knight-up': (
+    <>
+      <Piece type="pawn" x={-6} y={36} size={52} />
+      <Piece type="knight" x={34} y={10} size={68} />
+      <path {...thin} d="M22 30 Q30 12 46 14 M40 8 L46 14 L40 20" />
+    </>
+  ),
+  'shield-break': (
+    <>
+      <path d={ShieldPath} fill="currentColor" fillOpacity={0.18} stroke="currentColor" strokeWidth={6} strokeLinejoin="round" />
+      <path {...line} d="M52 10 L44 34 L58 48 L42 66 L50 90" />
+    </>
+  ),
+  'pawn-shield': (
+    <>
+      <Piece type="pawn" x={2} />
+      <SmallShield x={56} y={6} />
+    </>
+  ),
+  demote: (
+    <>
+      <Piece type="bishop" x={-4} y={4} size={58} side="black" />
+      <Piece type="pawn" x={44} y={40} size={54} side="black" />
+      <path {...line} d="M30 66 V88 H58 M50 80 L58 88 L50 96" />
+    </>
+  ),
+  thorns: (
+    <>
+      <path d={ShieldPath} fill="currentColor" fillOpacity={0.18} stroke="currentColor" strokeWidth={6} strokeLinejoin="round" />
+      <path d="M50 2 L56 12 H44 Z M86 18 L82 30 L74 22 Z M14 18 L26 22 L18 30 Z M90 52 L80 58 V46 Z M10 52 L20 46 V58 Z" fill="currentColor" />
+      <path {...thin} d="M50 30 V70 M34 50 H66 M39 39 L61 61 M61 39 L39 61" />
+    </>
+  ),
+  glacier: (
+    <>
+      <path d="M8 90 L30 46 L42 62 L58 28 L92 90 Z" fill="currentColor" fillOpacity={0.25} stroke="currentColor" strokeWidth={6} strokeLinejoin="round" />
+      <path {...thin} d="M58 28 L52 50 L62 60 M30 46 L34 66" />
+      <path {...thin} d="M80 6 V30 M70 12 L90 24 M70 24 L90 12" />
+    </>
+  ),
 };
 
 export function CardIcon({ icon, className }: { icon: IconKey; className?: string }) {

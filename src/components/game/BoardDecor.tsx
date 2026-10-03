@@ -1,13 +1,13 @@
 import type { Position } from '../../engine/game/position';
-import { BISHOP, F_FROZEN, F_SHIELD, KING, KNIGHT, QUEEN, ROOK, WHITE, type Color } from '../../engine/game/types';
+import { ARCHBISHOP, BISHOP, CHANCELLOR, F_FROZEN, F_SHIELD, KING, KNIGHT, QUEEN, ROOK, WHITE, type Color } from '../../engine/game/types';
 import { KnightEmblem } from '../board/PieceSvg';
 
 const augmented = (pos: Position, color: Color, kind: number): boolean => {
   const r = pos.rules[color];
   return (
     (kind === KNIGHT && (r.knightCamel || r.knightOath)) ||
-    (kind === BISHOP && r.bishopStep) ||
-    (kind === ROOK && r.rookStep) ||
+    ((kind === BISHOP || kind === ARCHBISHOP) && r.bishopStep) ||
+    ((kind === ROOK || kind === CHANCELLOR) && r.rookStep) ||
     (kind === KING && r.kingRange > 1)
   );
 };

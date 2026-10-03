@@ -1,6 +1,7 @@
 import { it } from 'vitest';
 import { think } from '../../src/engine/ai/think';
 import { cardById } from '../../src/engine/augments/cards';
+import { loadoutContext } from '../../src/engine/augments/draft';
 import { type Color } from '../../src/engine/game/types';
 import { applyAction, createMatch, type MatchState } from '../../src/engine/match/match';
 import { EVENTS } from '../../src/engine/run/events';
@@ -35,7 +36,8 @@ it('simulates runs', () => {
       switch (run.phase) {
         case 'start': case 'reward': case 'treasure': {
           const cards = run.reward!.cards;
-          const best = cards.slice().sort((a, b) => cardById(b).aiValue({ pos: createMatch({ mode: 'local', human: 0, level: 1, seed: 'x', drafts: false }).pos, color: 0, round: 1 }) - cardById(a).aiValue({ pos: createMatch({ mode: 'local', human: 0, level: 1, seed: 'x', drafts: false }).pos, color: 0, round: 1 }))[0] ?? null;
+          const ctx = loadoutContext(run.augments.map((a) => a.id), 0);
+          const best = cards.slice().sort((a, b) => cardById(b).aiValue(ctx) - cardById(a).aiValue(ctx))[0] ?? null;
           run = runAction(run, run.phase === 'start' ? { type: 'start-pick', card: best } : { type: 'take-reward', card: best });
           break;
         }
